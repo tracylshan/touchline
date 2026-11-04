@@ -276,7 +276,9 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-function fetchUrl(u){const r=(S.relay||'').trim();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
+const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
+const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
+function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
 let refreshing=false;
 const canRefresh=!window.claude; // claude.ai artifacts cannot fetch other sites
 async function refreshFeeds(){
@@ -288,7 +290,8 @@ async function refreshFeeds(){
   await Promise.all(jobs.map(async([t,f])=>{
     const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),20000);
     try{
-      const res=await fetch(fetchUrl(httpsUrl(f.url)),{cache:'no-store',signal:ctl.signal});
+      const src=relayUrl()?fetchUrl(String(f.url).trim().replace(/^webcal:\/\//i,'https://')):httpsUrl(f.url);
+      const res=await fetch(src,{cache:'no-store',signal:ctl.signal});
       if(!res.ok)throw new Error('The feed answered with error '+res.status+'. Check the link.');
       const txt=await res.text();
       if(!/BEGIN:VCALENDAR/i.test(txt))throw new Error('That link did not return a calendar. Check the link.');
@@ -296,7 +299,7 @@ async function refreshFeeds(){
       f.auto={ok:Date.now(),msg:`${r.added} new, ${r.updated} updated`+(r.skipped?`, ${r.skipped} skipped`:'')};ok++;
     }catch(e){
       const blocked=e instanceof TypeError||e.name==='TypeError';
-      f.auto={ok:f.auto&&f.auto.ok||null,err:e.name==='AbortError'?'The feed took too long to answer.':blocked?'This browser could not read the feed. The calendar server does not allow web apps to load it directly, or you are offline. Use "Import .ics file", or set a feed relay on the Teams tab.':e.message};bad++;
+      f.auto={ok:f.auto&&f.auto.ok||null,err:e.name==='AbortError'?'The feed took too long to answer.':blocked?(relayUrl()?'Could not reach the feed relay. Check the relay address on the Teams tab, or check that you are online.':'This browser could not read the feed. The calendar server does not allow web apps to load it directly, or you are offline. Use "Import .ics file", or set a feed relay on the Teams tab.'):e.message};bad++;
     }finally{clearTimeout(timer);}
   }));
   saveLocal();
@@ -383,7 +386,9 @@ function teamChips(sel,act,list){
 function emptyStart(){
   return `<div class="empty"><h3>Track goals for every team you follow</h3>
   <p>Add a team, list its players, then import each team's game calendar. On game day, tap a player's name each time they score.</p>
-  <div class="row"><button class="btn primary" data-act="tab" data-tab="teams">Add your first team</button><button class="btn" data-act="examples">Try it with example teams</button></div></div>`;
+  <div class="row"><button class="btn primary" data-act="tab" data-tab="teams">Add your first team</button><button class="btn" data-act="examples">Try it with example teams</button></div>
+  <p style="border-top:1px solid var(--line);padding-top:10px;width:100%">Using a new phone or browser? Restore the backup file you saved, for example from iCloud Drive.</p>
+  <button class="btn" data-act="restore">Restore from a backup</button></div>`;
 }
 function gameRow(t,g){
   const d=new Date(g.start),r=result(g);
@@ -430,8 +435,8 @@ function viewTeams(){
     <div class="list" style="margin-top:10px">${arch.map(t=>`<button class="game-row" style="grid-template-columns:auto 1fr auto" data-act="open-team" data-team="${t.id}"><span class="dot" style="width:14px;height:14px;background:${t.color};opacity:.6"></span><div class="mid"><div class="opp">${esc(t.name)}</div><div class="meta">${Object.keys(t.games||{}).length} games · archived</div></div><span class="meta">View</span></button>`).join('')}</div></details>`;
   html+=`<form class="row" data-form="add-team" style="align-items:end"><label class="field"><span class="label">New team</span><input type="text" id="newTeamName" name="name" placeholder="e.g. Comets U10 (Sam)" required></label><button class="btn primary">Add team</button></form></div>
   ${canRefresh?"":"<!--"}<div class="section"><h3 style="font-size:18px;text-transform:uppercase">Calendar updates</h3>
-  <p class="help">Calendars that have a feed link update each time you open the app. If a team's page says the browser could not read its feed, add a feed relay address here. Leave it blank otherwise.</p>
-  <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(S.relay||'')}" placeholder="https://your-relay.workers.dev/?url="></label></div>${canRefresh?"":"-->"}`;
+  <p class="help">Calendars that have a feed link update each time you open the app. Feeds load through your Touchline relay, which works with TeamSnap and other calendar sites. Clear this box to load feeds directly instead.</p>
+  <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(relayUrl())}" placeholder="Blank: load feeds directly"></label></div>${canRefresh?"":"-->"}`;
   return html;
 }
 function viewTeam(){
@@ -839,15 +844,22 @@ fileIcs.addEventListener('change',async()=>{const fs=[...fileIcs.files];fileIcs.
   try{const txt=(await Promise.all(fs.map(readFile))).join('\n');importICS(pendingImport.team,pendingImport.feed,txt);}
   catch(e){ui.notice={teamId:pendingImport.team,err:true,text:'Could not read that file. Try "Paste calendar text" instead.'};render();}});
 fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.value='';if(!f)return;
-  try{const o=JSON.parse(await f.text());const ts=o&&o.teams;if(!ts||typeof ts!=='object')throw 0;let n=0;
+  try{const o=JSON.parse(await readFile(f));const ts=o&&o.teams;if(!ts||typeof ts!=='object')throw 0;let n=0;
+    const wasEmpty=!Object.keys(S.teams).length;
     for(const [id,t] of Object.entries(ts)){if(t&&t.id===id&&Array.isArray(t.players)&&t.games){S.teams[id]=t;touch(id);n++;}}
-    ui.modal={title:'Backup restored',msg:`Restored ${n} team${n===1?'':'s'}.`,text:null};
+    if(!n)throw 0;
+    if(o.relay&&S.relay===undefined&&o.relay!==DEFAULT_RELAY)S.relay=o.relay;
+    if(wasEmpty){S.lastBackup=S.lastChange=Date.now();}  // this device now matches the backup
+    saveLocal();
+    const when=o.saved?new Date(o.saved):null;
+    ui.modal={title:'Backup restored',msg:`Restored ${n} team${n===1?'':'s'}${when&&!isNaN(when)?' from the backup made '+fmtDay(when.getTime())+', '+fmtTime(when.getTime()):''}.`,text:null};
+    ui.tab='games';ui.view='games';setTimeout(refreshFeeds,0);
   }catch(e){ui.modal={title:'Could not restore',msg:'That file is not a Touchline Tally backup. Choose a .json file made with "Download backup".',text:null};}
   render();});
 function present(g,pid){if(pid&&g.absent&&g.absent.includes(pid))g.absent=g.absent.filter(x=>x!==pid);}
 document.addEventListener('toggle',e=>{if(e.target.id==='who')ui.whoOpen=e.target.open;if(e.target.id==='archList')ui.archOpen=e.target.open;},true);
 function doBackup(){
-  return offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup')
+  return offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),relay:relayUrl(),teams:S.teams},null,1),'Backup')
     .then(ok=>{if(ok){S.lastBackup=Date.now();saveLocal();if(ui.afterFinal)ui.afterFinal='done';}render();return ok;});
 }
 let armT=null;function arm(k){ui.armed=k;clearTimeout(armT);armT=setTimeout(()=>{ui.armed=null;render();},3500);}

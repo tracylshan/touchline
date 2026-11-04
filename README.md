@@ -38,14 +38,24 @@ You can also import a downloaded `.ics` file or paste calendar text by hand, or 
 Everything is stored in your browser on this device. Nothing is sent anywhere except the requests that load your calendar feeds.
 
 - Data in the home-screen app is separate from data in a browser tab. Clearing your browser's website data deletes it.
-- Use **Stats → Download backup** now and then. **Restore backup** loads it on the same phone or a new one.
+- Use **Stats → Download backup** now and then. On a new phone or browser, tap **Restore from a backup** on the welcome screen (or **Stats → Restore backup**). The backup includes your feed relay address.
 
 ## If a calendar won't update
 
 If a team's page says the browser could not read the feed, the calendar server doesn't allow web apps to load it directly. Two options:
 
 - Download the `.ics` file and use **Import .ics file**, or use **Paste calendar text**.
-- Set up a small relay (for example, a free Cloudflare Worker) that fetches the feed. Then put its address under **Teams → Calendar updates → Feed relay**, either ending in `?url=` or containing `{url}` where the feed address goes.
+- Set up the included relay, a free Cloudflare Worker that fetches feeds for the app. TeamSnap feeds need this.
+
+### Setting up the feed relay
+
+1. Create a free account at [dash.cloudflare.com](https://dash.cloudflare.com).
+2. Go to **Workers & Pages → Create → Create Worker**, name it `touchline-relay`, and click **Deploy**.
+3. Click **Edit code**, replace everything with the contents of [`relay/worker.js`](relay/worker.js), and click **Deploy**.
+4. Copy the worker's address (like `https://touchline-relay.yourname.workers.dev`).
+5. The app uses `https://touchline-relay.tracylshan.workers.dev/?url=` by default. If you set up your own relay, open **Teams → Calendar updates → Feed relay** and enter that address followed by `/?url=`, for example `https://touchline-relay.yourname.workers.dev/?url=`.
+
+The relay only passes calendars through and refuses anything else. To let only your app use it, set `ALLOWED_ORIGIN` at the top of `worker.js` to your app's address (for example `https://yourname.github.io`). The free plan allows 100,000 requests a day, far more than this needs.
 
 ## Files
 
@@ -55,6 +65,7 @@ If a team's page says the browser could not read the feed, the calendar server d
 | `manifest.webmanifest` | App name and icons for the home screen |
 | `sw.js` | Caches the app so it opens with weak signal |
 | `icon-*.png` | Home screen and browser icons |
+| `relay/worker.js` | Optional calendar feed relay for Cloudflare Workers |
 
 No build step and no dependencies. Fonts load from Google Fonts. To host it, put these files in a GitHub repository and turn on GitHub Pages (**Settings → Pages → Branch: main, / (root)**).
 
