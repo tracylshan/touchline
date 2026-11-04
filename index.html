@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Touchline">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#F1F4EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1511" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Touchline Tally</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one phone-width column, sticky scoreboard-style header, fixed bottom tab bar; game view is a big tap grid. */
+:root{
+  --bg:#F1F4EE; --surface:#FFFFFF; --ink:#14211A; --muted:#5B6A61; --line:#D9E0D6;
+  --turf:#1C6B43; --turf-ink:#FFFFFF; --turf-soft:#E2EEE5; --flag:#E8A912; --flag-soft:#FBF0D2;
+  --danger:#B3261E; --chip:#E5EBE2;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Figtree",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1511; --surface:#151F19; --ink:#E6EEE8; --muted:#97A69C; --line:#26342C;
+  --turf:#3FAE72; --turf-ink:#06110B; --turf-soft:#173325; --flag:#F5C451; --flag-soft:#3A3014;
+  --danger:#F2867E; --chip:#1E2B24; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1511; --surface:#151F19; --ink:#E6EEE8; --muted:#97A69C; --line:#26342C;
+  --turf:#3FAE72; --turf-ink:#06110B; --turf-soft:#173325; --flag:#F5C451; --flag-soft:#3A3014;
+  --danger:#F2867E; --chip:#1E2B24; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 calc(84px + env(safe-area-inset-bottom,0px))}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+#app{max-width:720px;margin:0 auto}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--turf);outline-offset:2px}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;letter-spacing:.01em;text-wrap:balance;margin:0}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;align-items:center;gap:12px;padding-block:14px 10px}
+.brand{font-family:var(--f-display);font-size:26px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1}
+.brand b{color:var(--turf)}
+.sync{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.sync i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.sync i{background:var(--turf)}
+.label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.section{display:grid;gap:10px;padding-block:14px}
+.section h2{font-size:22px;text-transform:uppercase}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:7px 14px;font-weight:600;font-size:13px}
+.seg button[aria-pressed="true"]{background:var(--turf);color:var(--turf-ink)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 14px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:var(--ink)}
+.btn.primary{background:var(--turf);color:var(--turf-ink);border-color:var(--turf)}
+.btn.ghost{background:none;border-color:transparent;padding-inline:8px}
+.btn.danger{color:var(--danger)}
+.btn.armed{background:var(--danger);color:var(--surface);border-color:var(--danger)}
+.btn.sm{padding:6px 10px;font-size:13px}
+input[type=text],input[type=url],input[type=number],input[type=date],input[type=time],input[type=datetime-local],textarea,select{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0;width:100%}
+textarea{min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.field{display:grid;gap:4px;flex:1 1 140px;min-width:0}
+.list{display:grid;border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden}
+.list>*+*{border-top:1px solid var(--line)}
+.game-row{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;padding:12px 14px;border:0;background:none;text-align:left;width:100%}
+.date{display:grid;justify-items:center;line-height:1;font-family:var(--f-display);text-transform:uppercase}
+.date .dow{font-size:12px;color:var(--muted);letter-spacing:.06em}
+.date .day{font-size:26px;font-weight:700}
+.date .mon{font-size:12px;color:var(--muted)}
+.mid{min-width:0}
+.opp{font-weight:700;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.score{font-family:var(--f-display);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;line-height:1}
+.score small{display:block;font-size:12px;letter-spacing:.06em;color:var(--muted)}
+.res-W{color:var(--turf)} .res-L{color:var(--danger)}
+.when{font-size:13px;color:var(--muted);text-align:right;white-space:nowrap}
+.group-h{padding:10px 14px 6px;background:var(--bg)}
+.empty{border:1.5px dashed var(--line);border-radius:14px;padding:22px;display:grid;gap:10px;justify-items:start}
+.empty h3{font-size:22px}
+.empty p{margin:0;color:var(--muted);max-width:52ch}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);
+  display:flex;justify-content:center;padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.tabs-in{display:grid;grid-template-columns:repeat(3,1fr);width:100%;max-width:720px}
+.tabs button{border:0;background:none;padding:8px 4px;font-family:var(--f-display);font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-radius:10px}
+.tabs button[aria-current="page"]{color:var(--turf);background:var(--turf-soft)}
+/* game view */
+.board{background:var(--ink);color:var(--bg);border-radius:18px;padding:16px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center}
+.board .side{display:grid;gap:6px;justify-items:center;min-width:0}
+.board .nm{font-size:13px;font-weight:600;opacity:.8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.board .n{font-family:var(--f-display);font-size:68px;font-weight:700;line-height:.9;font-variant-numeric:tabular-nums}
+.board .dash{font-family:var(--f-display);font-size:40px;opacity:.5}
+.board .pm{display:flex;gap:6px}
+.board .pm button{width:40px;height:34px;border-radius:9px;border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);background:none;color:var(--bg);font-size:20px;font-weight:700;line-height:1}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.pbtn{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:12px;display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;text-align:left;min-height:70px;transition:transform .08s}
+.pbtn:active{transform:scale(.97)}
+.pbtn .num{grid-row:span 2;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;font-family:var(--f-display);font-size:20px;font-weight:700;background:var(--chip)}
+.pbtn .pn{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pbtn .pc{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pbtn.hot{border-color:var(--flag);background:var(--flag-soft)}
+.assist{border:1px solid var(--flag);background:var(--flag-soft);border-radius:14px;padding:12px;display:grid;gap:8px}
+.flash{animation:flash .6s ease-out}
+@keyframes flash{0%{transform:scale(1.15)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.flash{animation:none}.pbtn{transition:none}}
+.logrow{display:flex;gap:10px;align-items:center;padding:10px 14px}
+.logrow .t{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;width:62px;flex:none}
+.logrow .w{flex:1;min-width:0}
+.back{display:flex;align-items:center;gap:8px}
+.back .btn{white-space:nowrap;flex:none}
+.back .meta{min-width:0}
+.ttl{font-size:28px;text-transform:uppercase;line-height:1.05}
+.notice{background:var(--turf-soft);border-radius:10px;padding:10px 12px;font-size:14px}
+.notice.err{background:color-mix(in srgb,var(--danger) 14%,var(--surface))}
+.help{font-size:13px;color:var(--muted);margin:0;max-width:62ch}
+.feed{padding:12px 14px;display:grid;gap:8px}
+.feed .u{font-size:12px;color:var(--muted);word-break:break-all}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+td.n,th.n{text-align:right}
+tr:last-child td{border-bottom:0}
+.rec{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.rec>div{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;gap:2px}
+.rec .big{font-family:var(--f-display);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.swatches button{width:30px;height:30px;border-radius:50%;border:2px solid transparent}
+.swatches button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--surface)}
+.modal{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--ink) 45%,transparent);display:grid;place-items:center;padding:16px}
+.modal>div{background:var(--surface);border-radius:16px;padding:16px;display:grid;gap:10px;width:100%;max-width:560px}
+.example-tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:var(--flag-soft);color:var(--ink);border-radius:6px;padding:2px 6px}
+</style>
+
+</head>
+<body>
+<div id="app"></div>
+<nav class="tabs" aria-label="Sections"><div class="tabs-in">
+  <button data-act="tab" data-tab="games">Games</button>
+  <button data-act="tab" data-tab="teams">Teams</button>
+  <button data-act="tab" data-tab="stats">Stats</button>
+</div></nav>
+<input type="file" id="fileIcs" multiple hidden>
+<input type="file" id="fileCsv" hidden>
+<input type="file" id="fileJson" hidden>
+
+<script>
+(function(){
+const $app=document.getElementById('app');
+const COLORS=['#2F6FDB','#D6453D','#1F9D61','#E08A00','#8A4FD3','#0E9AA7','#C2417F','#6B7A88'];
+const LS='touchline.v1';
+let S={teams:{}};
+let ui={tab:'games',view:'games',teamId:null,gameId:null,filter:'all',when:'upcoming',statsTeam:'all',
+  assistFor:null,armed:null,paste:null,notice:null,modal:null,flashId:null,};
+const rid=()=>Math.random().toString(36).slice(2,10);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o));
+
+/* ---------- persistence ---------- */
+function loadLocal(){try{const s=JSON.parse(localStorage.getItem(LS));if(s&&s.teams)S=s;}catch(e){}}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S));}catch(e){}}
+function touch(id){const t=S.teams[id];if(t)t.updated=Date.now();saveLocal();}
+function dropTeam(id){delete S.teams[id];saveLocal();}
+
+/* ---------- dates ---------- */
+const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtTime=ts=>new Date(ts).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+const fmtDay=ts=>{const d=new Date(ts);return DOW[d.getDay()]+' '+MON[d.getMonth()]+' '+d.getDate();};
+const isoDate=ts=>{const d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const localInput=ts=>isoDate(ts)+'T'+String(new Date(ts).getHours()).padStart(2,'0')+':'+String(new Date(ts).getMinutes()).padStart(2,'0');
+function offsetAt(ts,tz){const f=new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});const p={};for(const x of f.formatToParts(new Date(ts)))p[x.type]=x.value;return Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute,+p.second)-ts;}
+function wallToTs(y,mo,d,h,mi,s,tz){
+  if(tz){try{const g=Date.UTC(y,mo-1,d,h,mi,s);const o1=offsetAt(g,tz);let ts=g-o1;const o2=offsetAt(ts,tz);if(o2!==o1)ts=g-o2;return ts;}catch(e){}}
+  return new Date(y,mo-1,d,h,mi,s).getTime();
+}
+
+/* ---------- ICS ---------- */
+function parseICS(text){
+  const lines=text.replace(/\r\n?/g,'\n').replace(/\n[ \t]/g,'').split('\n');
+  const evs=[];let cur=null;
+  for(const raw of lines){
+    const line=raw.trimEnd();
+    if(line==='BEGIN:VEVENT'){cur={};continue;}
+    if(line==='END:VEVENT'){if(cur)evs.push(cur);cur=null;continue;}
+    if(!cur)continue;
+    let q=false,i=-1;for(let k=0;k<line.length;k++){const c=line[k];if(c==='"')q=!q;else if(c===':'&&!q){i=k;break;}}
+    if(i<0)continue;
+    const left=line.slice(0,i).split(';'),name=left[0].toUpperCase(),params={};
+    for(const p of left.slice(1)){const j=p.indexOf('=');if(j>0)params[p.slice(0,j).toUpperCase()]=p.slice(j+1).replace(/^"|"$/g,'');}
+    const v=line.slice(i+1).replace(/\\n/gi,'\n').replace(/\\([,;\\])/g,'$1');
+    if(!cur[name])cur[name]={v,params};
+  }
+  return evs.map(e=>{
+    const ds=e.DTSTART;if(!ds)return null;
+    const m=ds.v.match(/^(\d{4})(\d\d)(\d\d)(?:T(\d\d)(\d\d)(\d\d)?(Z)?)?/);if(!m)return null;
+    let ts,allDay=false;
+    if(!m[4]){allDay=true;ts=new Date(+m[1],+m[2]-1,+m[3],12).getTime();}
+    else if(m[7])ts=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));
+    else ts=wallToTs(+m[1],+m[2],+m[3],+m[4],+m[5],+(m[6]||0),ds.params.TZID);
+    return{uid:(e.UID&&e.UID.v)||(ds.v+(e.SUMMARY?e.SUMMARY.v:'')),title:(e.SUMMARY&&e.SUMMARY.v||'Untitled event').trim(),
+      start:ts,allDay,loc:(e.LOCATION&&e.LOCATION.v||'').trim(),cancelled:/CANCEL/i.test(e.STATUS?e.STATUS.v:'')||/^cancel/i.test(e.SUMMARY?e.SUMMARY.v:''),rid:e['RECURRENCE-ID']?e['RECURRENCE-ID'].v:''};
+  }).filter(Boolean);
+}
+function hash(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return 'c'+(h>>>0).toString(36);}
+function guessOpp(title,team){
+  let s=title.replace(/^(game|match|league game|scrimmage)\s*[:\-–]\s*/i,'').trim();
+  const tn=team.name.toLowerCase().replace(/\(example\)/,'').trim();
+  let m=s.match(/^(.*?)\s+(?:vs\.?|v\.?|versus)\s+(.+)$/i);
+  if(m){const a=m[1].trim(),b=m[2].trim();if(tn&&b.toLowerCase().includes(tn))return{opp:a,home:false};return{opp:b,home:true};}
+  m=s.match(/^(.*?)\s*(?:@|\bat\b)\s+(.+)$/i);
+  if(m){const b=m[2].trim();return{opp:b,home:false};}
+  return{opp:s,home:null};
+}
+function splitKw(s){return String(s||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);}
+function importICS(teamId,feedId,text,quiet){
+  const t=S.teams[teamId];if(!t)return;
+  const evs=parseICS(text);
+  if(!evs.length){if(quiet)throw new Error('The feed returned no events.');ui.notice={teamId,err:true,text:'No events found. Check that this is a calendar (.ics) file.'};render();return;}
+  const skip=splitKw(t.skip),only=splitKw(t.only);
+  let added=0,updated=0,skipped=0,upcoming=0;
+  for(const e of evs){
+    const lt=(e.title+' '+e.loc).toLowerCase();
+    if(skip.some(k=>lt.includes(k))||(only.length&&!only.some(k=>lt.includes(k)))){skipped++;continue;}
+    if(e.start>Date.now()-2*3600e3)upcoming++;
+    const id=hash(e.uid+'|'+e.rid);const g=t.games[id];
+    const o=guessOpp(e.title,t);
+    if(g){g.title=e.title;g.start=e.start;g.allDay=e.allDay;g.loc=e.loc;g.cancelled=e.cancelled;g.feed=feedId;if(!g.oppEdited){g.opp=o.opp;g.home=o.home;}updated++;}
+    else{t.games[id]={id,title:e.title,opp:o.opp,home:o.home,start:e.start,allDay:e.allDay,loc:e.loc,cancelled:e.cancelled,feed:feedId,src:'feed',oppGoals:0,goals:[],final:false};added++;}
+  }
+  const f=(t.feeds||[]).find(f=>f.id===feedId);if(f)f.last=Date.now();
+  const kept=added+updated;
+  if(quiet){touch(teamId);return {added,updated,skipped};}
+  ui.notice={teamId,err:!kept,text:kept?`Imported into ${t.name}: ${added} new, ${updated} updated`+(skipped?`, ${skipped} skipped by your filters`:'')+`. ${upcoming} upcoming, ${kept-upcoming} already played. They are listed under Games below.`
+    :`Found ${evs.length} events but your filters skipped all of them. Clear the "Skip" or "Only" box below and import again.`};
+  ui.paste=null;touch(teamId);render();
+}
+
+/* ---------- automatic feed refresh ---------- */
+function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
+function fetchUrl(u){const r=(S.relay||'').trim();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
+let refreshing=false;
+const canRefresh=!window.claude; // claude.ai artifacts cannot fetch other sites
+async function refreshFeeds(){
+  if(refreshing||!canRefresh)return;const jobs=[];
+  for(const t of teamsArr())for(const f of t.feeds||[])if(f.url)jobs.push([t,f]);
+  if(!jobs.length)return;
+  refreshing=true;ui.refresh={state:'loading'};render();
+  let ok=0,bad=0;
+  await Promise.all(jobs.map(async([t,f])=>{
+    const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),20000);
+    try{
+      const res=await fetch(fetchUrl(httpsUrl(f.url)),{cache:'no-store',signal:ctl.signal});
+      if(!res.ok)throw new Error('The feed answered with error '+res.status+'. Check the link.');
+      const txt=await res.text();
+      if(!/BEGIN:VCALENDAR/i.test(txt))throw new Error('That link did not return a calendar. Check the link.');
+      const r=importICS(t.id,f.id,txt,true);
+      f.auto={ok:Date.now(),msg:`${r.added} new, ${r.updated} updated`+(r.skipped?`, ${r.skipped} skipped`:'')};ok++;
+    }catch(e){
+      const blocked=e instanceof TypeError||e.name==='TypeError';
+      f.auto={ok:f.auto&&f.auto.ok||null,err:e.name==='AbortError'?'The feed took too long to answer.':blocked?'This browser could not read the feed. The calendar server does not allow web apps to load it directly, or you are offline. Use "Import .ics file", or set a feed relay on the Teams tab.':e.message};bad++;
+    }finally{clearTimeout(timer);}
+  }));
+  for(const t of teamsArr())touch(t.id);
+  refreshing=false;ui.refresh={state:'done',at:Date.now(),ok,bad};lastRefresh=Date.now();render();
+}
+let lastRefresh=0;
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastRefresh>10*60e3)refreshFeeds();});
+
+/* ---------- roster CSV ---------- */
+function parseCSV(text){
+  const rows=[];let row=[],cell='',q=false;text=text.replace(/^﻿/,'');
+  const delim=(text.split('\n')[0].match(/\t/g)||[]).length>(text.split('\n')[0].match(/,/g)||[]).length?'\t':(text.split('\n')[0].includes(';')&&!text.split('\n')[0].includes(',')?';':',');
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){cell+='"';i++;}else q=false;}else cell+=c;continue;}
+    if(c==='"')q=true;else if(c===delim){row.push(cell);cell='';}else if(c==='\n'||c==='\r'){if(c==='\r'&&text[i+1]==='\n')i++;row.push(cell);rows.push(row);row=[];cell='';}else cell+=c;}
+  if(cell!==''||row.length){row.push(cell);rows.push(row);}
+  return rows.map(r=>r.map(x=>x.trim())).filter(r=>r.some(Boolean));
+}
+function rosterFromRows(rows){
+  if(!rows.length)return[];
+  const h=rows[0].map(x=>x.toLowerCase().replace(/[^a-z#]/g,''));
+  const find=re=>h.findIndex(x=>re.test(x));
+  let iN=find(/^(name|player|playername|fullname|athlete)$/),iF=find(/^(first|firstname|given)/),iL=find(/^(last|lastname|surname|family)/),iNum=find(/^(#|no|num|number|jersey|jerseynumber|shirt|uniform)/);
+  let body=rows;
+  if(iN>=0||iF>=0||iNum>=0)body=rows.slice(1);
+  else{ // no header: number = the mostly-numeric column, name = the first other column
+    const w=Math.max(...rows.map(r=>r.length));let best=-1,bs=0;
+    for(let c=0;c<w;c++){const n=rows.filter(r=>/^#?\d{1,3}$/.test(r[c]||'')).length;if(n>bs){bs=n;best=c;}}
+    iNum=bs>=rows.length/2?best:-1;iN=[...Array(w).keys()].find(c=>c!==iNum);
+    if(w>2&&iNum<0){iF=0;iL=1;iN=-1;}
+  }
+  return body.map(r=>{let name=iN>=0?r[iN]:[iF>=0?r[iF]:'',iL>=0?r[iL]:''].join(' ');name=(name||'').replace(/\s+/g,' ').trim();
+    const num=iNum>=0?(r[iNum]||'').replace(/^#/,'').trim():'';return{name,num};}).filter(p=>p.name);
+}
+function importRoster(teamId,text){
+  const t=S.teams[teamId];if(!t)return;
+  const list=rosterFromRows(parseCSV(text));
+  if(!list.length){ui.rosterNotice={teamId,err:true,text:'No players found. Use one player per row with a name column and an optional number column.'};render();return;}
+  let added=0,updated=0;
+  for(const p of list){const ex=t.players.find(x=>x.name.toLowerCase()===p.name.toLowerCase());
+    if(ex){if(p.num&&ex.num!==p.num){ex.num=p.num;updated++;}}else{t.players.push({id:'p_'+rid(),num:p.num,name:p.name});added++;}}
+  ui.rosterNotice={teamId,text:`Roster import: ${added} added`+(updated?`, ${updated} numbers updated`:'')+'. Players already on the team were kept.'};
+  ui.pasteRoster=false;touch(teamId);render();
+}
+
+/* ---------- model helpers ---------- */
+const teamsArr=()=>Object.values(S.teams).sort((a,b)=>(a.created||0)-(b.created||0));
+function allGames(){const out=[];for(const t of teamsArr())for(const g of Object.values(t.games||{}))out.push({t,g});return out.sort((a,b)=>a.g.start-b.g.start);}
+const isPast=g=>g.final||g.start<Date.now()-2*3600e3;
+function result(g){const us=g.goals.length,th=g.oppGoals||0;if(!isPast(g)&&!us&&!th)return null;return{us,th,r:us>th?'W':us<th?'L':'D'};}
+function player(t,id){return(t.players||[]).find(p=>p.id===id);}
+function pname(t,id){if(!id)return 'Unknown';const p=player(t,id);return p?p.name:'Removed player';}
+function newTeam(name){const id='t_'+rid();S.teams[id]={id,name,color:COLORS[teamsArr().length%COLORS.length],players:[],feeds:[],games:{},skip:'practice, training',only:'',created:Date.now()};touch(id);return id;}
+
+/* ---------- render ---------- */
+function render(){
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.tab===ui.tab?'page':'false'));
+  const v=ui.view;
+  let body=v==='game'?viewGame():v==='team'?viewTeam():v==='teams'?viewTeams():v==='stats'?viewStats():viewGames();
+  $app.innerHTML=`<header class="top"><div class="brand">Touchline <b>Tally</b></div><div class="sync"><i></i><span>Saved on this device</span></div></header>`+body+(ui.modal?viewModal():'');
+}
+function teamChips(sel,act){
+  return `<div class="chips" role="group" aria-label="Filter by team"><button class="chip" data-act="${act}" data-v="all" aria-pressed="${sel==='all'}">All teams</button>`+
+    teamsArr().map(t=>`<button class="chip" data-act="${act}" data-v="${t.id}" aria-pressed="${sel===t.id}"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</button>`).join('')+`</div>`;
+}
+function emptyStart(){
+  return `<div class="empty"><h3>Track goals for every team you follow</h3>
+  <p>Add a team, list its players, then import each team's game calendar. On game day, tap a player's name each time they score.</p>
+  <div class="row"><button class="btn primary" data-act="tab" data-tab="teams">Add your first team</button><button class="btn" data-act="examples">Try it with example teams</button></div></div>`;
+}
+function gameRow(t,g){
+  const d=new Date(g.start),r=result(g);
+  const right=g.cancelled?`<div class="when">Cancelled</div>`:r?`<div class="score">${r.us}–${r.th}<small class="res-${r.r}">${r.r==='D'?'Draw':r.r==='W'?'Win':'Loss'}</small></div>`:`<div class="when">${g.allDay?'All day':fmtTime(g.start)}</div>`;
+  return `<button class="game-row" data-act="open-game" data-team="${t.id}" data-game="${g.id}">
+    <div class="date"><span class="dow">${DOW[d.getDay()]}</span><span class="day">${d.getDate()}</span><span class="mon">${MON[d.getMonth()]}</span></div>
+    <div class="mid"><div class="opp">${g.home===false?'at ':'vs '}${esc(g.opp||g.title)}</div>
+    <div class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}${g.loc?' · '+esc(g.loc):''}</div></div>${right}</button>`;
+}
+function refreshBar(){
+  const has=canRefresh&&teamsArr().some(t=>(t.feeds||[]).some(f=>f.url));if(!has)return '';
+  const r=ui.refresh;let msg;
+  if(r&&r.state==='loading')msg='Updating calendars…';
+  else if(r&&r.state==='done')msg=r.bad?`${r.bad} calendar${r.bad>1?'s':''} could not update. See the team page.`:`Calendars updated ${fmtTime(r.at)}`;
+  else msg='Calendars not updated yet';
+  return `<div class="row" style="justify-content:space-between"><span class="meta"><span class="dot" style="background:${r&&r.bad?'var(--danger)':'var(--turf)'}"></span>${esc(msg)}</span><button class="btn sm" data-act="refresh" ${r&&r.state==='loading'?'disabled':''}>Update now</button></div>`;
+}
+function viewGames(){
+  if(!teamsArr().length)return `<div class="section">${emptyStart()}</div>`;
+  let list=allGames().filter(x=>ui.filter==='all'||x.t.id===ui.filter);
+  const up=ui.when==='upcoming';
+  list=list.filter(x=>up?!isPast(x.g):isPast(x.g));if(!up)list.reverse();
+  let html=`<div class="section">${refreshBar()}${teamChips(ui.filter,'filter')}
+    <div class="row"><div class="seg"><button data-act="when" data-v="upcoming" aria-pressed="${up}">Upcoming</button><button data-act="when" data-v="past" aria-pressed="${!up}">Played</button></div></div>`;
+  if(!list.length){
+    html+=`<div class="empty"><h3>${up?'No upcoming games':'No games played yet'}</h3><p>Import a team's calendar or add a game by hand from the team's page.</p>
+      <button class="btn" data-act="tab" data-tab="teams">Go to teams</button></div></div>`;return html;
+  }
+  let lastM='';html+=`<div class="list">`;
+  for(const x of list){const d=new Date(x.g.start),m=MON[d.getMonth()]+' '+d.getFullYear();if(m!==lastM){html+=`<div class="group-h label">${m}</div>`;lastM=m;}html+=gameRow(x.t,x.g);}
+  return html+`</div></div>`;
+}
+function viewTeams(){
+  const ts=teamsArr();
+  let html=`<div class="section"><h2>Teams</h2>`;
+  if(ts.length){
+    html+=`<div class="list">`+ts.map(t=>{const gs=Object.values(t.games||{});const goals=gs.reduce((n,g)=>n+g.goals.length,0);
+      return `<button class="game-row" style="grid-template-columns:auto 1fr auto" data-act="open-team" data-team="${t.id}"><span class="dot" style="width:14px;height:14px;background:${t.color}"></span>
+      <div class="mid"><div class="opp">${esc(t.name)}</div><div class="meta">${t.players.length} players · ${gs.length} games · ${(t.feeds||[]).length} calendars</div></div>
+      <div class="score">${goals}<small>goals</small></div></button>`;}).join('')+`</div>`;
+  }else html+=emptyStart();
+  html+=`<form class="row" data-form="add-team" style="align-items:end"><label class="field"><span class="label">New team</span><input type="text" id="newTeamName" name="name" placeholder="e.g. Comets U10 (Sam)" required></label><button class="btn primary">Add team</button></form></div>
+  ${canRefresh?"":"<!--"}<div class="section"><h3 style="font-size:18px;text-transform:uppercase">Calendar updates</h3>
+  <p class="help">Calendars that have a feed link update each time you open the app. If a team's page says the browser could not read its feed, add a feed relay address here. Leave it blank otherwise.</p>
+  <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(S.relay||'')}" placeholder="https://your-relay.workers.dev/?url="></label></div>${canRefresh?"":"-->"}`;
+  return html;
+}
+function viewTeam(){
+  const t=S.teams[ui.teamId];if(!t){ui.view='teams';return viewTeams();}
+  const n=ui.notice&&ui.notice.teamId===t.id?`<div class="notice ${ui.notice.err?'err':''}" role="status">${esc(ui.notice.text)}</div>`:'';
+  const gs=Object.values(t.games||{}).sort((a,b)=>a.start-b.start);
+  return `<div class="section"><div class="back"><button class="btn ghost" data-act="tab" data-tab="teams">‹ Teams</button></div>
+  <label class="field"><span class="label">Team name</span><input type="text" id="teamName" data-field="team-name" value="${esc(t.name)}"></label>
+  <div class="swatches" role="group" aria-label="Team color">${COLORS.map(c=>`<button data-act="color" data-v="${c}" style="background:${c}" aria-pressed="${t.color===c}" aria-label="Color ${c}"></button>`).join('')}</div></div>
+
+  <div class="section"><h2>Players</h2>
+  ${t.players.length?`<div class="list">${t.players.map(p=>`<div class="logrow"><span class="t" style="width:auto"><b>${esc(p.num||'–')}</b></span><span class="w">${esc(p.name)}</span><button class="btn sm ghost ${ui.armed==='p'+p.id?'armed':'danger'}" data-act="del-player" data-v="${p.id}">${ui.armed==='p'+p.id?'Tap to remove':'Remove'}</button></div>`).join('')}</div>`:`<p class="help">No players yet. Add the kids you want to track; you can leave out the rest of the roster.</p>`}
+  <form class="row" data-form="add-player" style="align-items:end"><label class="field" style="flex:0 0 76px"><span class="label">No.</span><input type="text" inputmode="numeric" id="pNum" name="num" maxlength="3"></label>
+  <label class="field"><span class="label">Player name</span><input type="text" id="pName" name="name" required></label><button class="btn primary">Add</button></form>
+  ${ui.rosterNotice&&ui.rosterNotice.teamId===t.id?`<div class="notice ${ui.rosterNotice.err?'err':''}" role="status">${esc(ui.rosterNotice.text)}</div>`:''}
+  <div class="row"><button class="btn sm" data-act="roster-file">Import roster CSV</button><button class="btn sm" data-act="roster-paste">${ui.pasteRoster?'Cancel paste':'Paste roster'}</button></div>
+  ${ui.pasteRoster?`<textarea id="rosterBox" placeholder="Name,Number&#10;Maya Chen,4&#10;Leo Ortiz,7"></textarea><div><button class="btn sm primary" data-act="roster-go">Import pasted roster</button></div>`:''}
+  <p class="help">CSV with a Name (or First and Last) column and a Number or Jersey column. Spreadsheet exports and rows copied from a team app work. Matching names update their number.</p></div>
+
+  <div class="section"><h2>Game calendars</h2>
+  <p class="help">Add each calendar link your league or team app gives you (TeamSnap, SportsEngine, GameChanger, Google Calendar and others offer an .ics or webcal link). Open the link to download the file, then import it here. Re-import any time: times and fields update, and the goals you tallied stay.</p>
+  ${n}
+  ${(t.feeds||[]).length?`<div class="list">${t.feeds.map(f=>feedRow(t,f)).join('')}</div>`:''}
+  <form class="row" data-form="add-feed" style="align-items:end"><label class="field"><span class="label">Calendar name</span><input type="text" id="fLabel" name="label" placeholder="Fall league" required></label>
+  <label class="field" style="flex:2 1 220px"><span class="label">Feed link (optional)</span><input type="url" id="fUrl" name="url" placeholder="webcal://…  or  https://….ics"></label><button class="btn primary">Add calendar</button></form>
+  <div class="row"><label class="field"><span class="label">Skip events containing</span><input type="text" id="tSkip" data-field="team-skip" value="${esc(t.skip||'')}" placeholder="practice, training"></label>
+  <label class="field"><span class="label">Only events containing</span><input type="text" id="tOnly" data-field="team-only" value="${esc(t.only||'')}" placeholder="leave blank for all"></label></div>
+  <p class="help">Separate words with commas. Filters apply on the next import.</p></div>
+
+  <div class="section"><h2>Games</h2>
+  <form class="row" data-form="add-game" style="align-items:end"><label class="field"><span class="label">Date</span><input type="date" id="gDate" name="date" required value="${isoDate(Date.now())}"></label>
+  <label class="field" style="flex:0 1 120px"><span class="label">Time</span><input type="time" id="gTime" name="time" value="09:00"></label>
+  <label class="field"><span class="label">Opponent</span><input type="text" id="gOpp" name="opp" required></label><button class="btn primary">Add game</button></form>
+  ${gs.length?`<div class="list">${gs.map(g=>gameRow(t,g)).join('')}</div>`:''}</div>
+
+  <div class="section"><button class="btn ${ui.armed==='team'?'armed':'danger'}" data-act="del-team">${ui.armed==='team'?'Tap again to delete this team and its games':'Delete team'}</button></div>`;
+}
+function feedRow(t,f){
+  const href=f.url?httpsUrl(f.url):'';
+  const pasting=ui.paste===f.id;
+  return `<div class="feed"><div class="row" style="justify-content:space-between"><b>${esc(f.label)}</b><span class="meta">${f.last?'Imported '+fmtDay(f.last):'Not imported yet'}</span></div>
+  ${f.url?`<div class="u">${esc(f.url)}</div>`:''}
+  ${f.auto?(f.auto.err?`<div class="notice err">${esc(f.auto.err)}${f.auto.ok?' Last automatic update: '+fmtDay(f.auto.ok)+' '+fmtTime(f.auto.ok)+'.':''}</div>`:`<div class="meta">Updated automatically ${fmtDay(f.auto.ok)}, ${fmtTime(f.auto.ok)}: ${esc(f.auto.msg)}</div>`):''}
+  <div class="row">${href?`<a class="btn sm" href="${esc(href)}" target="_blank" rel="noopener">Open feed ↗</a>`:''}
+  ${f.sample?`<button class="btn sm primary" data-act="import-sample" data-v="${f.id}">Import example calendar</button>`:''}
+  <button class="btn sm ${f.sample?'':'primary'}" data-act="import-file" data-v="${f.id}">Import .ics file</button>
+  <button class="btn sm" data-act="paste" data-v="${f.id}">${pasting?'Cancel paste':'Paste calendar text'}</button>
+  <button class="btn sm ghost ${ui.armed==='f'+f.id?'armed':'danger'}" data-act="del-feed" data-v="${f.id}">${ui.armed==='f'+f.id?'Tap to remove':'Remove'}</button></div>
+  ${pasting?`<textarea id="pasteBox" placeholder="BEGIN:VCALENDAR…"></textarea><div><button class="btn sm primary" data-act="paste-go" data-v="${f.id}">Import pasted text</button></div>`:''}</div>`;
+}
+function viewGame(){
+  const t=S.teams[ui.teamId],g=t&&t.games[ui.gameId];if(!g){ui.view='games';return viewGames();}
+  const counts={};for(const x of g.goals){if(x.p){(counts[x.p]=counts[x.p]||{g:0,a:0}).g++;}if(x.a){(counts[x.a]=counts[x.a]||{g:0,a:0}).a++;}}
+  const af=ui.assistFor&&g.goals.find(x=>x.id===ui.assistFor);
+  let html=`<div class="section"><div class="back"><button class="btn ghost" data-act="back">‹ Back</button><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)} · ${fmtDay(g.start)}${g.allDay?'':' · '+fmtTime(g.start)}</span></div>
+  ${g.cancelled?'<div class="notice err">The calendar marks this game as cancelled.</div>':''}
+  <div class="board"><div class="side"><span class="nm">${esc(t.name)}</span><span class="n ${ui.flashId==='us'?'flash':''}">${g.goals.length}</span><span class="label" style="color:inherit;opacity:.6">Tap a player</span></div>
+  <div class="dash">–</div>
+  <div class="side"><span class="nm">${esc(g.opp||'Opponent')}</span><span class="n ${ui.flashId==='them'?'flash':''}">${g.oppGoals||0}</span>
+  <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div></div>`;
+  if(af){
+    html+=`<div class="assist" role="status"><div><b>Goal: ${esc(pname(t,af.p))}</b> at ${fmtTime(af.t)}. Who assisted?</div><div class="chips" style="flex-wrap:wrap">
+    ${t.players.filter(p=>p.id!==af.p).map(p=>`<button class="chip" data-act="assist" data-v="${p.id}">${esc(p.name)}</button>`).join('')}<button class="chip" data-act="assist" data-v="">No assist</button></div></div>`;
+  }
+  if(t.players.length){
+    html+=`<div class="pgrid">${t.players.map(p=>{const c=counts[p.id]||{g:0,a:0};return `<button class="pbtn ${c.g?'hot':''}" data-act="goal" data-v="${p.id}"><span class="num">${esc(p.num||'·')}</span><span class="pn">${esc(p.name)}</span><span class="pc">${c.g} G${c.a?' · '+c.a+' A':''}</span></button>`;}).join('')}
+    <button class="pbtn" data-act="goal" data-v=""><span class="num">?</span><span class="pn">Other player</span><span class="pc">not on your list</span></button></div>`;
+  }else html+=`<div class="empty"><p>Add players to ${esc(t.name)} so you can tap them when they score.</p><button class="btn primary" data-act="open-team" data-team="${t.id}">Add players</button></div>`;
+  html+=`</div><div class="section"><h2>Goal log</h2>`+(g.goals.length?`<div class="list">${g.goals.slice().reverse().map(x=>`<div class="logrow"><span class="t">${fmtTime(x.t)}</span><span class="w"><b>${esc(pname(t,x.p))}</b>${x.a?' <span class="meta" style="display:inline">assist '+esc(pname(t,x.a))+'</span>':''}</span><button class="btn sm ghost danger" data-act="undo" data-v="${x.id}">Remove</button></div>`).join('')}</div>`:`<p class="help">No goals yet. Each tap adds a goal with the time, and you can add the assist right after.</p>`)+`</div>
+  <div class="section"><h2>Game details</h2>
+  <div class="row"><label class="field"><span class="label">Opponent</span><input type="text" id="gdOpp" data-field="game-opp" value="${esc(g.opp||'')}"></label>
+  <label class="field"><span class="label">Kickoff</span><input type="datetime-local" id="gdStart" data-field="game-start" value="${localInput(g.start)}"></label></div>
+  <label class="field"><span class="label">Location</span><input type="text" id="gdLoc" data-field="game-loc" value="${esc(g.loc||'')}"></label>
+  ${g.title&&g.src==='feed'?`<p class="help">Calendar title: ${esc(g.title)}</p>`:''}
+  <div class="row"><button class="btn ${g.final?'primary':''}" data-act="final">${g.final?'Final ✓':'Mark as final'}</button>
+  <button class="btn ${ui.armed==='game'?'armed':'danger'}" data-act="del-game">${ui.armed==='game'?'Tap again to delete game':'Delete game'}</button></div>
+  ${g.src==='feed'?'<p class="help">A deleted calendar game comes back the next time you import that calendar.</p>':''}</div>`;
+  return html;
+}
+function statsFor(teams){
+  const rows=[];
+  for(const t of teams){const per={};for(const p of t.players)per[p.id]={t,p,g:0,a:0,gp:new Set()};
+    for(const g of Object.values(t.games||{}))for(const x of g.goals){if(x.p&&per[x.p]){per[x.p].g++;per[x.p].gp.add(g.id);}if(x.a&&per[x.a])per[x.a].a++;}
+    rows.push(...Object.values(per));}
+  return rows.sort((a,b)=>b.g-a.g||b.a-a.a||a.p.name.localeCompare(b.p.name));
+}
+function viewStats(){
+  if(!teamsArr().length)return `<div class="section">${emptyStart()}</div>`;
+  const teams=ui.statsTeam==='all'?teamsArr():[S.teams[ui.statsTeam]].filter(Boolean);
+  let html=`<div class="section"><h2>Season stats</h2>${teamChips(ui.statsTeam,'stats-team')}<div class="rec">`;
+  for(const t of teams){let w=0,l=0,d=0,gf=0,ga=0;for(const g of Object.values(t.games||{})){if(g.cancelled)continue;const r=result(g);if(!r)continue;gf+=r.us;ga+=r.th;r.r==='W'?w++:r.r==='L'?l++:d++;}
+    html+=`<div><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span><span class="big">${w}-${l}-${d}</span><span class="meta">W-L-D · ${gf} for, ${ga} against</span></div>`;}
+  html+=`</div>`;
+  const rows=statsFor(teams);
+  html+=rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Player</th>${teams.length>1?'<th>Team</th>':''}<th class="n">Goals</th><th class="n">Assists</th><th class="n">Games scored in</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.p.name)}</b>${r.p.num?' <span class="meta" style="display:inline">#'+esc(r.p.num)+'</span>':''}</td>${teams.length>1?`<td><span class="meta"><span class="dot" style="background:${r.t.color}"></span>${esc(r.t.name)}</span></td>`:''}<td class="n"><b>${r.g}</b></td><td class="n">${r.a}</td><td class="n">${r.gp.size}</td></tr>`).join('')}</tbody></table></div>`:`<p class="help">Add players to see their totals here.</p>`;
+  html+=`</div><div class="section"><h2>Export</h2><p class="help">CSV files open in Excel, Numbers and Google Sheets. Exports follow the team filter above.</p>
+  <div class="row"><button class="btn primary" data-act="csv" data-v="goals">Goal log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button></div>
+  <h3 style="font-size:18px;text-transform:uppercase;margin-top:8px">Backup</h3><p class="help">Save everything as one file, or restore from a backup. Restoring replaces teams that have the same ID and keeps the others.</p>
+  <div class="row"><button class="btn" data-act="backup">Download backup</button><button class="btn" data-act="restore">Restore backup</button></div></div>`;
+  return html;
+}
+function viewModal(){
+  const m=ui.modal;
+  return `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(m.title)}"><div><h3 style="font-size:22px">${esc(m.title)}</h3><p class="help">${esc(m.msg)}</p>
+  ${m.text!=null?`<textarea id="modalText" readonly style="min-height:200px">${esc(m.text)}</textarea>`:''}
+  <div class="row">${m.text!=null?'<button class="btn primary" data-act="copy">Copy</button>':''}<button class="btn" data-act="close-modal">Close</button></div></div></div>`;
+}
+
+/* ---------- export ---------- */
+function csvCell(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function toCsv(rows){return rows.map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n';}
+function buildCsv(kind){
+  const teams=ui.statsTeam==='all'?teamsArr():[S.teams[ui.statsTeam]].filter(Boolean);
+  if(kind==='goals'){const rows=[['Date','Kickoff','Team','Opponent','Scorer','Number','Assist','Time logged']];
+    for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start))for(const x of g.goals){const p=player(t,x.p);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,pname(t,x.p),p?p.num:'',x.a?pname(t,x.a):'',fmtTime(x.t)]);}
+    return rows;}
+  if(kind==='totals'){const rows=[['Team','Player','Number','Goals','Assists','Games scored in']];for(const r of statsFor(teams))rows.push([r.t.name,r.p.name,r.p.num,r.g,r.a,r.gp.size]);return rows;}
+  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Status']];
+  for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){const r=result(g);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming']);}
+  return rows;
+}
+async function offerFile(filename,text,title){
+  let dl=null;try{dl=window.claude&&await window.claude.use('downloads');}catch(e){}
+  if(dl){try{await dl.save({filename,data:text});return;}catch(e){if(e&&e.code==='declined')return;}}
+  if(!window.claude){
+    const mime=filename.endsWith('.csv')?'text/csv':'application/json';
+    try{const file=new File([text],filename,{type:mime});if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:filename});return;}}catch(e){if(e&&e.name==='AbortError')return;}
+    try{const u=URL.createObjectURL(new Blob([text],{type:mime}));const a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);return;}catch(e){}
+  }
+  ui.modal={title,msg:'Downloads are not available in this view. Copy the text below and paste it into a file or spreadsheet.',text};render();
+}
+
+/* ---------- examples ---------- */
+function sampleICS(t){
+  const opps=['Maple Grove SC','Harbor City FC','Pine Ridge United','Summit Select'];
+  const pad=n=>String(n).padStart(2,'0');let out='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example League//EN\r\n';
+  const base=new Date();base.setHours(10,30,0,0);
+  opps.forEach((o,i)=>{const d=new Date(base.getTime()+(3+i*7)*864e5);
+    const dt=d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'T'+pad(d.getHours())+pad(d.getMinutes())+'00';
+    out+=`BEGIN:VEVENT\r\nUID:example-${t.id}-${i}@league\r\nDTSTART:${dt}\r\nSUMMARY:${t.name.replace(' (example)','')} ${i%2?'@':'vs'} ${o}\r\nLOCATION:${i%2?o+' Field':'Memorial Park\\, Field 3'}\r\nEND:VEVENT\r\n`;
+    const p=new Date(d.getTime()+2*864e5);const pt=p.getFullYear()+pad(p.getMonth()+1)+pad(p.getDate())+'T180000';
+    out+=`BEGIN:VEVENT\r\nUID:example-${t.id}-practice-${i}@league\r\nDTSTART:${pt}\r\nSUMMARY:Practice\r\nEND:VEVENT\r\n`;});
+  return out+'END:VCALENDAR\r\n';
+}
+function loadExamples(){
+  const mk=(name,color,players,opps,offsetDays)=>{const id=newTeam(name+' (example)');const t=S.teams[id];t.color=color;
+    t.players=players.map(([num,nm])=>({id:'p_'+rid(),num,name:nm}));
+    t.feeds=[{id:'f_'+rid(),label:'Spring league (example)',url:'',last:null,sample:true}];
+    const base=new Date();base.setHours(9,0,0,0);
+    opps.forEach((o,i)=>{const gid='g_'+rid();const start=base.getTime()+(offsetDays+i*7)*864e5;const past=start<Date.now();
+      const goals=[];if(past){const n=(i*3+name.length)%4;for(let k=0;k<n;k++){const p=t.players[(i+k)%t.players.length];const a=k%2?t.players[(i+k+1)%t.players.length].id:null;goals.push({id:rid(),p:p.id,a,t:start+(10+k*12)*6e4});}}
+      t.games[gid]={id:gid,title:'vs '+o,opp:o,home:i%2===0,start,allDay:false,loc:i%2?'Away field':'Memorial Park, Field 3',cancelled:false,src:'manual',oppGoals:past?(i+1)%3:0,goals,final:past};});
+    touch(id);};
+  mk('Blue Comets U10','#2F6FDB',[['4','Maya'],['7','Leo'],['9','Ava'],['11','Noah'],['14','Zoe']],['Riverside FC','Hilltop United','Lakeview SC','Northgate Strikers','Eastside Rovers'],-21);
+  mk('Thunder U12','#D6453D',[['3','Sam'],['8','Priya'],['10','Jonah'],['21','Ella']],['Westfield Storm','Cedar Valley','Oak Park Rangers','Bayside Blaze'],-12);
+  ui.tab='games';ui.view='games';ui.when='past';render();
+}
+
+/* ---------- events ---------- */
+let pendingImport=null;
+const fileCsv=document.getElementById('fileCsv');
+
+fileCsv.addEventListener('change',async()=>{const f=fileCsv.files[0];fileCsv.value='';if(f&&ui.teamId){try{importRoster(ui.teamId,await readFile(f));}catch(e){ui.rosterNotice={teamId:ui.teamId,err:true,text:'Could not read that file. Try "Paste roster" instead.'};render();}}});
+const fileIcs=document.getElementById('fileIcs'),fileJson=document.getElementById('fileJson');
+const readFile=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result||''));r.onerror=()=>rej(r.error);r.readAsText(f);});
+fileIcs.addEventListener('change',async()=>{const fs=[...fileIcs.files];fileIcs.value='';if(!pendingImport||!fs.length)return;
+  try{const txt=(await Promise.all(fs.map(readFile))).join('\n');importICS(pendingImport.team,pendingImport.feed,txt);}
+  catch(e){ui.notice={teamId:pendingImport.team,err:true,text:'Could not read that file. Try "Paste calendar text" instead.'};render();}});
+fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.value='';if(!f)return;
+  try{const o=JSON.parse(await f.text());const ts=o&&o.teams;if(!ts||typeof ts!=='object')throw 0;let n=0;
+    for(const [id,t] of Object.entries(ts)){if(t&&t.id===id&&Array.isArray(t.players)&&t.games){S.teams[id]=t;touch(id);n++;}}
+    ui.modal={title:'Backup restored',msg:`Restored ${n} team${n===1?'':'s'}.`,text:null};
+  }catch(e){ui.modal={title:'Could not restore',msg:'That file is not a Touchline Tally backup. Choose a .json file made with "Download backup".',text:null};}
+  render();});
+let armT=null;function arm(k){ui.armed=k;clearTimeout(armT);armT=setTimeout(()=>{ui.armed=null;render();},3500);}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,v=b.dataset.v;
+  const t=S.teams[ui.teamId],g=t&&ui.gameId&&t.games[ui.gameId];
+  switch(a){
+  case 'tab':ui.tab=b.dataset.tab;ui.view=ui.tab;ui.assistFor=null;ui.notice=null;window.scrollTo(0,0);break;
+  case 'filter':ui.filter=v;break;
+  case 'stats-team':ui.statsTeam=v;break;
+  case 'when':ui.when=v;break;
+  case 'examples':loadExamples();return;
+  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.armed=null;window.scrollTo(0,0);break;
+  case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;window.scrollTo(0,0);break;
+  case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;break;
+  case 'color':t.color=v;touch(t.id);break;
+  case 'del-player':if(ui.armed==='p'+v){t.players=t.players.filter(p=>p.id!==v);ui.armed=null;touch(t.id);}else arm('p'+v);break;
+  case 'del-feed':if(ui.armed==='f'+v){t.feeds=t.feeds.filter(f=>f.id!==v);ui.armed=null;touch(t.id);}else arm('f'+v);break;
+  case 'del-team':if(ui.armed==='team'){dropTeam(t.id);ui.armed=null;ui.view='teams';ui.filter='all';ui.statsTeam='all';}else arm('team');break;
+  case 'del-game':if(ui.armed==='game'){delete t.games[g.id];ui.armed=null;touch(t.id);ui.view=ui.tab==='teams'?'team':'games';}else arm('game');break;
+  case 'import-sample':importICS(t.id,v,sampleICS(t));return;
+  case 'import-file':pendingImport={team:t.id,feed:v};fileIcs.click();return;
+  case 'refresh':refreshFeeds();return;
+  case 'roster-file':fileCsv.click();return;
+  case 'roster-paste':ui.pasteRoster=!ui.pasteRoster;break;
+  case 'roster-go':importRoster(t.id,document.getElementById('rosterBox').value);return;
+  case 'paste':ui.paste=ui.paste===v?null:v;break;
+  case 'paste-go':{const txt=document.getElementById('pasteBox').value;importICS(t.id,v,txt);return;}
+  case 'goal':{const x={id:rid(),p:v||null,a:null,t:Date.now()};g.goals.push(x);ui.assistFor=(v&&t.players.length>1)?x.id:null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'assist':{const x=g.goals.find(x=>x.id===ui.assistFor);if(x)x.a=v||null;ui.assistFor=null;touch(t.id);break;}
+  case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
+  case 'opp':g.oppGoals=Math.max(0,(g.oppGoals||0)+(+v));ui.flashId=+v>0?'them':null;touch(t.id);render();ui.flashId=null;return;
+  case 'final':g.final=!g.final;touch(t.id);break;
+  case 'csv':{const k=v,rows=buildCsv(k);const scope=ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase());
+    offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='goals'?'Goal log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
+  case 'backup':offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup');return;
+  case 'restore':fileJson.click();return;
+  case 'close-modal':ui.modal=null;break;
+  case 'copy':{const ta=document.getElementById('modalText');const done=()=>{b.textContent='Copied';};
+    try{navigator.clipboard.writeText(ta.value).then(done,()=>{ta.select();});}catch(err){ta.select();}return;}
+  default:return;}
+  render();
+});
+document.addEventListener('submit',e=>{
+  const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();const d=Object.fromEntries(new FormData(f));const t=S.teams[ui.teamId];
+  switch(f.dataset.form){
+  case 'add-team':{const n=(d.name||'').trim();if(!n)return;const id=newTeam(n);ui.teamId=id;ui.view='team';break;}
+  case 'add-player':{const n=(d.name||'').trim();if(!n)return;t.players.push({id:'p_'+rid(),num:(d.num||'').trim(),name:n});touch(t.id);render();document.getElementById('pName').focus();return;}
+  case 'add-feed':{t.feeds=t.feeds||[];t.feeds.push({id:'f_'+rid(),label:d.label.trim(),url:(d.url||'').trim(),last:null});touch(t.id);if(d.url)setTimeout(refreshFeeds,0);break;}
+  case 'add-game':{const [y,m,dd]=d.date.split('-').map(Number);const [hh,mi]=(d.time||'09:00').split(':').map(Number);const id='g_'+rid();
+    t.games[id]={id,title:'vs '+d.opp,opp:d.opp.trim(),home:null,start:new Date(y,m-1,dd,hh,mi).getTime(),allDay:false,loc:'',cancelled:false,src:'manual',oppGoals:0,goals:[],final:false};touch(t.id);break;}
+  }
+  render();
+});
+document.addEventListener('change',e=>{
+  const el=e.target;const k=el.dataset&&el.dataset.field;if(!k)return;if(k==='relay'){S.relay=el.value.trim();saveLocal();refreshFeeds();return;}const t=S.teams[ui.teamId];if(!t)return;const g=t.games[ui.gameId];
+  if(k==='team-name'){const n=el.value.trim();if(n)t.name=n;}
+  else if(k==='team-skip')t.skip=el.value;
+  else if(k==='team-only')t.only=el.value;
+  else if(k==='game-opp'&&g){g.opp=el.value.trim();g.oppEdited=true;}
+  else if(k==='game-loc'&&g)g.loc=el.value.trim();
+  else if(k==='game-start'&&g&&el.value){const ts=new Date(el.value).getTime();if(!isNaN(ts)){g.start=ts;g.allDay=false;}}
+  touch(t.id);
+});
+
+loadLocal();render();setTimeout(refreshFeeds,300);
+window.__tt={parseICS,guessOpp,toCsv,parseCSV,rosterFromRows};
+})();
+</script>
+
+<script>if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});</script>
+</body>
+</html>
