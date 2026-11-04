@@ -93,6 +93,7 @@ textarea{min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12p
   display:flex;justify-content:center;padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .tabs-in{display:grid;grid-template-columns:repeat(3,1fr);width:100%;max-width:720px}
 .tabs button{border:0;background:none;padding:8px 4px;font-family:var(--f-display);font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-radius:10px}
+.tabs button.due::after{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);margin-left:6px;vertical-align:4px}
 .tabs button[aria-current="page"]{color:var(--turf);background:var(--turf-soft)}
 /* game view */
 .board{background:var(--ink);color:var(--bg);border-radius:18px;padding:16px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center}
@@ -182,9 +183,16 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const clone=o=>JSON.parse(JSON.stringify(o));
 
 /* ---------- persistence ---------- */
-function loadLocal(){try{const s=JSON.parse(localStorage.getItem(LS));if(s&&s.teams)S=s;}catch(e){}}
+function loadLocal(){try{const s=JSON.parse(localStorage.getItem(LS));if(s&&s.teams)S=s;}catch(e){}if(!S.firstUse){S.firstUse=Date.now();saveLocal();}}
 function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S));}catch(e){}}
-function touch(id){const t=S.teams[id];if(t)t.updated=Date.now();saveLocal();}
+function touch(id){const t=S.teams[id];if(t)t.updated=Date.now();S.lastChange=Date.now();saveLocal();}
+function backupState(){
+  const now=Date.now(),last=S.lastBackup||0,changed=(S.lastChange||0)>last;
+  const since=last||S.firstUse||now;const overdue=changed&&now-since>7*864e5;
+  const days=last?Math.floor((new Date(now).setHours(0,0,0,0)-new Date(last).setHours(0,0,0,0))/864e5):null;
+  const ago=days===null?'never':days===0?'today':days===1?'yesterday':days+' days ago';
+  return{last,changed,overdue,ago};
+}
 function dropTeam(id){delete S.teams[id];saveLocal();}
 
 /* ---------- dates ---------- */
@@ -254,7 +262,7 @@ function importICS(teamId,feedId,text,quiet){
   }
   const f=(t.feeds||[]).find(f=>f.id===feedId);if(f)f.last=Date.now();
   const kept=added+updated;
-  if(quiet){touch(teamId);return {added,updated,skipped};}
+  if(quiet){t.updated=Date.now();saveLocal();return {added,updated,skipped};}
   ui.notice={teamId,err:!kept,text:kept?`Imported into ${t.name}: ${added} new, ${updated} updated`+(skipped?`, ${skipped} skipped by your filters`:'')+`. ${upcoming} upcoming, ${kept-upcoming} already played. They are listed under Games below.`
     :`Found ${evs.length} events but your filters skipped all of them. Clear the "Skip" or "Only" box below and import again.`};
   ui.paste=null;touch(teamId);render();
@@ -285,7 +293,7 @@ async function refreshFeeds(){
       f.auto={ok:f.auto&&f.auto.ok||null,err:e.name==='AbortError'?'The feed took too long to answer.':blocked?'This browser could not read the feed. The calendar server does not allow web apps to load it directly, or you are offline. Use "Import .ics file", or set a feed relay on the Teams tab.':e.message};bad++;
     }finally{clearTimeout(timer);}
   }));
-  for(const t of teamsArr())touch(t.id);
+  saveLocal();
   refreshing=false;ui.refresh={state:'done',at:Date.now(),ok,bad};lastRefresh=Date.now();render();
 }
 let lastRefresh=0;
@@ -343,7 +351,8 @@ function newTeam(name){const id='t_'+rid();S.teams[id]={id,name,color:COLORS[tea
 
 /* ---------- render ---------- */
 function render(){
-  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-current',b.dataset.tab===ui.tab?'page':'false'));
+  const due=backupState().overdue;
+  document.querySelectorAll('.tabs button').forEach(b=>{b.setAttribute('aria-current',b.dataset.tab===ui.tab?'page':'false');b.classList.toggle('due',due&&b.dataset.tab==='stats');});
   const v=ui.view;
   let body=v==='game'?viewGame():v==='team'?viewTeam():v==='teams'?viewTeams():v==='stats'?viewStats():viewGames();
   $app.innerHTML=`<header class="top"><div class="brand">Touchline <b>Tally</b></div><div class="sync"><i></i><span>Saved on this device</span></div></header>`+body+(ui.modal?viewModal():'');
@@ -506,6 +515,10 @@ function viewGame(){
   ${g.title&&g.src==='feed'?`<p class="help">Calendar title: ${esc(g.title)}</p>`:''}
   <div class="row"><button class="btn ${g.final?'primary':''}" data-act="final">${g.final?'Final ✓':'Mark as final'}</button>
   <button class="btn ${ui.armed==='game'?'armed':'danger'}" data-act="del-game">${ui.armed==='game'?'Tap again to delete game':'Delete game'}</button></div>
+  ${ui.afterFinal===g.id?`<div class="assist" role="status" id="afterFinal"><b>Final score saved: ${g.goals.length}–${(g.oppGoals||0)+ownGoals(g)}.</b> Back up now so this game is safe in iCloud Drive?
+    <div class="row"><button class="btn primary" data-act="backup">Back up now</button><button class="btn" data-act="share-card">Share result</button><button class="btn ghost" data-act="after-final-dismiss">Not now</button></div>
+    <p class="help" style="margin:0">On iPhone, choose Save to Files, then iCloud Drive, and replace the old backup.</p></div>`
+  :ui.afterFinal==='done'?`<div class="notice" role="status">Backed up. <button class="btn sm ghost" data-act="after-final-dismiss">OK</button></div>`:''}
   ${g.src==='feed'?'<p class="help">A deleted calendar game comes back the next time you import that calendar.</p>':''}</div>`;
   return html;
 }
@@ -533,8 +546,10 @@ function viewStats(){
   <p class="help">GP games played · G goals · A assists · Sh shots · SOG shots on goal · PK penalties scored/taken · Sv saves · YC/RC yellow/red cards · OG own goals.</p>`:`<p class="help">Add players to see their totals here.</p>`;
   html+=`</div><div class="section"><h2>Export</h2><p class="help">CSV files open in Excel, Numbers and Google Sheets. Exports follow the team filter above.</p>
   <div class="row"><button class="btn primary" data-act="csv" data-v="events">Game log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button></div>
-  <h3 style="font-size:18px;text-transform:uppercase;margin-top:8px">Backup</h3><p class="help">Save everything as one file, or restore from a backup. Restoring replaces teams that have the same ID and keeps the others.</p>
-  <div class="row"><button class="btn" data-act="backup">Download backup</button><button class="btn" data-act="restore">Restore backup</button></div></div>`;
+  <h3 style="font-size:18px;text-transform:uppercase;margin-top:8px">Backup</h3>
+  ${(()=>{const b=backupState();return `<div class="notice ${b.overdue?'err':''}" role="status"><b>Last backup: ${b.ago}.</b> ${b.overdue?'You have changes that aren\'t backed up. Download a backup and save it to iCloud Drive.':b.changed?(b.last?'You have changes since then.':'Back up once you have games logged.'):b.last?'Everything is backed up.':'Nothing to back up yet.'}</div>`;})()}
+  <p class="help">Save everything as one file (on iPhone: Save to Files → iCloud Drive), or restore from a backup. Restoring replaces teams that have the same ID and keeps the others.</p>
+  <div class="row"><button class="btn ${backupState().overdue?'primary':''}" data-act="backup">Download backup</button><button class="btn" data-act="restore">Restore backup</button></div></div>`;
   return html;
 }
 function viewModal(){
@@ -682,13 +697,13 @@ function buildCsv(kind){
 }
 async function offerFile(filename,text,title){
   let dl=null;try{dl=window.claude&&await window.claude.use('downloads');}catch(e){}
-  if(dl){try{await dl.save({filename,data:text});return;}catch(e){if(e&&e.code==='declined')return;}}
+  if(dl){try{await dl.save({filename,data:text});return true;}catch(e){if(e&&e.code==='declined')return false;}}
   if(!window.claude){
     const mime=filename.endsWith('.csv')?'text/csv':'application/json';
-    try{const file=new File([text],filename,{type:mime});if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:filename});return;}}catch(e){if(e&&e.name==='AbortError')return;}
-    try{const u=URL.createObjectURL(new Blob([text],{type:mime}));const a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);return;}catch(e){}
+    try{const file=new File([text],filename,{type:mime});if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:filename});return true;}}catch(e){if(e&&e.name==='AbortError')return false;}
+    try{const u=URL.createObjectURL(new Blob([text],{type:mime}));const a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);return true;}catch(e){}
   }
-  ui.modal={title,msg:'Downloads are not available in this view. Copy the text below and paste it into a file or spreadsheet.',text};render();
+  ui.modal={title,msg:'Downloads are not available in this view. Copy the text below and paste it into a file or spreadsheet.',text};render();return false;
 }
 
 /* ---------- examples ---------- */
@@ -740,19 +755,23 @@ fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.
   render();});
 function present(g,pid){if(pid&&g.absent&&g.absent.includes(pid))g.absent=g.absent.filter(x=>x!==pid);}
 document.addEventListener('toggle',e=>{if(e.target.id==='who')ui.whoOpen=e.target.open;},true);
+function doBackup(){
+  return offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup')
+    .then(ok=>{if(ok){S.lastBackup=Date.now();saveLocal();if(ui.afterFinal)ui.afterFinal='done';}render();return ok;});
+}
 let armT=null;function arm(k){ui.armed=k;clearTimeout(armT);armT=setTimeout(()=>{ui.armed=null;render();},3500);}
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,v=b.dataset.v;
   const t=S.teams[ui.teamId],g=t&&ui.gameId&&t.games[ui.gameId];
   switch(a){
-  case 'tab':ui.tab=b.dataset.tab;ui.view=ui.tab;ui.assistFor=null;ui.notice=null;window.scrollTo(0,0);break;
+  case 'tab':ui.tab=b.dataset.tab;ui.view=ui.tab;ui.assistFor=null;ui.afterFinal=null;ui.notice=null;window.scrollTo(0,0);break;
   case 'filter':ui.filter=v;break;
   case 'stats-team':ui.statsTeam=v;break;
   case 'when':ui.when=v;break;
   case 'examples':loadExamples();return;
-  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.armed=null;window.scrollTo(0,0);break;
+  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.afterFinal=null;ui.armed=null;window.scrollTo(0,0);break;
   case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;window.scrollTo(0,0);break;
-  case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;break;
+  case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;ui.afterFinal=null;break;
   case 'color':t.color=v;touch(t.id);break;
   case 'del-player':if(ui.armed==='p'+v){t.players=t.players.filter(p=>p.id!==v);ui.armed=null;touch(t.id);}else arm('p'+v);break;
   case 'del-feed':if(ui.armed==='f'+v){t.feeds=t.feeds.filter(f=>f.id!==v);ui.armed=null;touch(t.id);}else arm('f'+v);break;
@@ -778,10 +797,11 @@ document.addEventListener('click',e=>{
   case 'assist':{const x=g.goals.find(x=>x.id===ui.assistFor);if(x)x.a=v||null;ui.assistFor=null;touch(t.id);break;}
   case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(g.events)g.events=g.events.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
   case 'opp':g.oppGoals=Math.max(0,(g.oppGoals||0)+(+v));ui.flashId=+v>0?'them':null;touch(t.id);render();ui.flashId=null;return;
-  case 'final':g.final=!g.final;touch(t.id);break;
+  case 'final':g.final=!g.final;touch(t.id);ui.afterFinal=g.final?g.id:null;break;
   case 'csv':{const k=v,rows=buildCsv(k);const scope=ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase());
     offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
-  case 'backup':offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup');return;
+  case 'backup':doBackup();return;
+  case 'after-final-dismiss':ui.afterFinal=null;break;
   case 'restore':fileJson.click();return;
   case 'close-modal':if(ui.modal&&ui.modal.share&&ui.modal.share.url)URL.revokeObjectURL(ui.modal.share.url);ui.modal=null;break;
   case 'share-card':openShare(t,g);return;
