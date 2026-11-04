@@ -293,6 +293,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
+const APP_VERSION='2026.11.04-7';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -453,7 +454,8 @@ function viewTeams(){
   html+=`<form class="row" data-form="add-team" style="align-items:end"><label class="field"><span class="label">New team</span><input type="text" id="newTeamName" name="name" placeholder="e.g. Comets U10 (Sam)" required></label><button class="btn primary">Add team</button></form></div>
   ${canRefresh?"":"<!--"}<div class="section"><h3 style="font-size:18px;text-transform:uppercase">Calendar updates</h3>
   <p class="help">Calendars that have a feed link update each time you open the app. Feeds load through your Touchline relay, which works with TeamSnap and other calendar sites. Clear this box to load feeds directly instead.</p>
-  <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(relayUrl())}" placeholder="Blank: load feeds directly"></label></div>${canRefresh?"":"-->"}`;
+  <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(relayUrl())}" placeholder="Blank: load feeds directly"></label></div>${canRefresh?"":"-->"}
+  <p class="help" style="text-align:center;padding-bottom:8px">Touchline Tally · version ${APP_VERSION}</p>`;
   return html;
 }
 function viewTeam(){
@@ -977,6 +979,6 @@ window.__tt={parseICS,guessOpp,toCsv,parseCSV,rosterFromRows};
 })();
 </script>
 
-<script>if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});</script>
+<script>if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});</script>
 </body>
 </html>
