@@ -9,6 +9,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 - **Game day.** Tap a player for a goal, then pick the assist. The ••• button logs shots, shots on goal, saves, penalties scored or missed, own goals, and yellow and red cards. Mark who missed the game, keep the opponent's score, and remove mistakes from the time-stamped game log.
 - **Share results.** After a game, tap **Share result** for an image with the date, score, every goal with its scorer and assist, and saves, ready to text or post. There's also a plain-text version for group chats.
 - **Season stats.** Win-loss-draw records, and per player: games played, goals, assists, shots, shots on goal, penalties, saves, cards and own goals. Export everything as CSV.
+- **Seasons and career stats.** Start a new season from a team's page to carry the roster forward and archive the old season. The Career view adds up each player's stats across every season, and you can export it as CSV.
 - **Private.** Everything stays on your phone. No account, no ads, no sign-up.
 
 ## Install on your phone
@@ -25,6 +26,10 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 4. **Games tab:** open a game and tap a player each time they score. Tap a second name to record the assist, or tap **No assist**. Tap **•••** on a player for other events. Use **+ Opp. own goal** when the other team scores on themselves, and **Who's playing** to untick absent players.
 5. **Share:** in a game, tap **Share result**, then **Share image** to send it or save it to Photos, or **Copy as text**.
 6. **Stats tab:** see records and player totals, and export CSV files.
+
+### When a new season starts
+
+Open the team on the Teams tab and tap **Start new season**. Check the new name, untick players who left, add the new calendar link, and keep **Archive** ticked. The old team moves to **Archived teams** with all its games and stats. In Stats, **By team** has a **Show archived** toggle, and **Career** combines each player's seasons. Tap a player there to see each season.
 
 You can also import a downloaded `.ics` file or paste calendar text by hand, or add games one at a time.
 

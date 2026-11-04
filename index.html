@@ -93,6 +93,12 @@ textarea{min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12p
   display:flex;justify-content:center;padding:6px max(16px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .tabs-in{display:grid;grid-template-columns:repeat(3,1fr);width:100%;max-width:720px}
 .tabs button{border:0;background:none;padding:8px 4px;font-family:var(--f-display);font-size:17px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-radius:10px}
+.crow{cursor:pointer}
+.crow:hover td{background:var(--chip)}
+tr.sub td{background:var(--bg);font-size:13px;padding-block:6px}
+.tbl-wrap th:first-child,.tbl-wrap td:first-child{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:1px 0 0 var(--line)}
+.tbl-wrap tr.sub td:first-child{background:var(--bg)}
+.crow:hover td:first-child{background:var(--chip)}
 .tabs button.due::after{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--danger);margin-left:6px;vertical-align:4px}
 .tabs button[aria-current="page"]{color:var(--turf);background:var(--turf-soft)}
 /* game view */
@@ -176,7 +182,7 @@ const $app=document.getElementById('app');
 const COLORS=['#2F6FDB','#D6453D','#1F9D61','#E08A00','#8A4FD3','#0E9AA7','#C2417F','#6B7A88'];
 const LS='touchline.v1';
 let S={teams:{}};
-let ui={tab:'games',view:'games',teamId:null,gameId:null,filter:'all',when:'upcoming',statsTeam:'all',
+let ui={tab:'games',view:'games',teamId:null,gameId:null,filter:'all',when:'upcoming',statsTeam:'all',statsMode:'season',careerLin:'all',careerOpen:null,showArchived:false,newSeason:false,
   assistFor:null,armed:null,paste:null,notice:null,modal:null,flashId:null,};
 const rid=()=>Math.random().toString(36).slice(2,10);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -331,13 +337,26 @@ function importRoster(teamId,text){
   if(!list.length){ui.rosterNotice={teamId,err:true,text:'No players found. Use one player per row with a name column and an optional number column.'};render();return;}
   let added=0,updated=0;
   for(const p of list){const ex=t.players.find(x=>x.name.toLowerCase()===p.name.toLowerCase());
-    if(ex){if(p.num&&ex.num!==p.num){ex.num=p.num;updated++;}}else{t.players.push({id:'p_'+rid(),num:p.num,name:p.name});added++;}}
+    if(ex){if(p.num&&ex.num!==p.num){ex.num=p.num;updated++;}}else{newPlayer(t,p.name,p.num);added++;}}
   ui.rosterNotice={teamId,text:`Roster import: ${added} added`+(updated?`, ${updated} numbers updated`:'')+'. Players already on the team were kept.'};
   ui.pasteRoster=false;touch(teamId);render();
 }
 
 /* ---------- model helpers ---------- */
-const teamsArr=()=>Object.values(S.teams).sort((a,b)=>(a.created||0)-(b.created||0));
+const teamsArr=all=>Object.values(S.teams).filter(t=>all||!t.archived).sort((a,b)=>(a.created||0)-(b.created||0));
+const lineageOf=t=>t.lineage||t.id;
+const pkey=p=>p.key||p.id;
+function newPlayer(t,name,num){ // reuse the career link of a same-named player from this team's earlier seasons
+  const lin=lineageOf(t),nm=name.trim().toLowerCase();let key=null;
+  for(const o of teamsArr(true)){if(o.id===t.id||lineageOf(o)!==lin)continue;const m=o.players.find(p=>p.name.trim().toLowerCase()===nm);if(m){key=pkey(m);break;}}
+  const p={id:'p_'+rid(),num:num||'',name:name.trim()};if(key)p.key=key;t.players.push(p);return p;
+}
+function seasonName(name){
+  const d=new Date(),y=d.getFullYear(),m=d.getMonth();
+  const label=m<6?'Spring '+y:'Fall '+y;
+  const base=name.replace(/\s*\((?:example|(?:spring|summer|fall|autumn|winter)\s*\d{4})\)\s*$/i,'').replace(/\s+(?:spring|summer|fall|autumn|winter)\s+\d{4}$/i,'');
+  return `${base} (${label})`;
+}
 function allGames(){const out=[];for(const t of teamsArr())for(const g of Object.values(t.games||{}))out.push({t,g});return out.sort((a,b)=>a.g.start-b.g.start);}
 const isPast=g=>g.final||g.start<Date.now()-2*3600e3;
 const EV={sot:'Shot on goal',shot:'Shot (missed)',save:'Save',pkmiss:'Penalty missed',yellow:'Yellow card',red:'Red card',og:'Own goal'};
@@ -357,9 +376,9 @@ function render(){
   let body=v==='game'?viewGame():v==='team'?viewTeam():v==='teams'?viewTeams():v==='stats'?viewStats():viewGames();
   $app.innerHTML=`<header class="top"><div class="brand">Touchline <b>Tally</b></div><div class="sync"><i></i><span>Saved on this device</span></div></header>`+body+(ui.modal?viewModal():'');
 }
-function teamChips(sel,act){
+function teamChips(sel,act,list){
   return `<div class="chips" role="group" aria-label="Filter by team"><button class="chip" data-act="${act}" data-v="all" aria-pressed="${sel==='all'}">All teams</button>`+
-    teamsArr().map(t=>`<button class="chip" data-act="${act}" data-v="${t.id}" aria-pressed="${sel===t.id}"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</button>`).join('')+`</div>`;
+    (list||teamsArr()).map(t=>`<button class="chip" data-act="${act}" data-v="${t.id}" aria-pressed="${sel===t.id}"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</button>`).join('')+`</div>`;
 }
 function emptyStart(){
   return `<div class="empty"><h3>Track goals for every team you follow</h3>
@@ -406,6 +425,9 @@ function viewTeams(){
       <div class="mid"><div class="opp">${esc(t.name)}</div><div class="meta">${t.players.length} players · ${gs.length} games · ${(t.feeds||[]).length} calendars</div></div>
       <div class="score">${goals}<small>goals</small></div></button>`;}).join('')+`</div>`;
   }else html+=emptyStart();
+  const arch=teamsArr(true).filter(t=>t.archived);
+  if(arch.length)html+=`<details class="who" ${ui.archOpen?'open':''} id="archList"><summary><span class="label">Archived teams</span> <span class="meta" style="display:inline">${arch.length}</span></summary>
+    <div class="list" style="margin-top:10px">${arch.map(t=>`<button class="game-row" style="grid-template-columns:auto 1fr auto" data-act="open-team" data-team="${t.id}"><span class="dot" style="width:14px;height:14px;background:${t.color};opacity:.6"></span><div class="mid"><div class="opp">${esc(t.name)}</div><div class="meta">${Object.keys(t.games||{}).length} games · archived</div></div><span class="meta">View</span></button>`).join('')}</div></details>`;
   html+=`<form class="row" data-form="add-team" style="align-items:end"><label class="field"><span class="label">New team</span><input type="text" id="newTeamName" name="name" placeholder="e.g. Comets U10 (Sam)" required></label><button class="btn primary">Add team</button></form></div>
   ${canRefresh?"":"<!--"}<div class="section"><h3 style="font-size:18px;text-transform:uppercase">Calendar updates</h3>
   <p class="help">Calendars that have a feed link update each time you open the app. If a team's page says the browser could not read its feed, add a feed relay address here. Leave it blank otherwise.</p>
@@ -445,7 +467,21 @@ function viewTeam(){
   <label class="field"><span class="label">Opponent</span><input type="text" id="gOpp" name="opp" required></label><button class="btn primary">Add game</button></form>
   ${gs.length?`<div class="list">${gs.map(g=>gameRow(t,g)).join('')}</div>`:''}</div>
 
+  ${t.archived?`<div class="section"><div class="notice">This team is archived. It's hidden from Games and calendar updates, and its stats stay in Stats (Show archived) and Career.</div><div class="row"><button class="btn primary" data-act="unarchive">Restore team</button></div></div>`:`
+  <div class="section"><h2>New season</h2>
+  ${ui.newSeason?newSeasonForm(t):`<p class="help">Copies this team's players and settings into a new team for the next season and archives this one. All stats stay, and career totals combine both.</p>
+  <div class="row"><button class="btn primary" data-act="new-season">Start new season</button><button class="btn" data-act="archive">Archive without a new season</button></div>`}</div>`}
   <div class="section"><button class="btn ${ui.armed==='team'?'armed':'danger'}" data-act="del-team">${ui.armed==='team'?'Tap again to delete this team and its games':'Delete team'}</button></div>`;
+}
+function newSeasonForm(t){
+  return `<form class="assist" data-form="new-season" style="gap:12px">
+  <label class="field"><span class="label">New team name</span><input type="text" id="nsName" name="name" value="${esc(seasonName(t.name))}" required></label>
+  <div class="field"><span class="label">Players to keep</span><div class="chips" style="flex-wrap:wrap">${t.players.map(p=>`<label class="chip"><input type="checkbox" name="keep" value="${p.id}" checked> ${p.num?'#'+esc(p.num)+' ':''}${esc(p.name)}</label>`).join('')||'<span class="meta">No players yet</span>'}</div></div>
+  <div class="row" style="align-items:end"><label class="field"><span class="label">New calendar name</span><input type="text" id="nsFeedLabel" name="feedLabel" placeholder="Spring league"></label>
+  <label class="field" style="flex:2 1 220px"><span class="label">New calendar link (optional)</span><input type="url" id="nsFeedUrl" name="feedUrl" placeholder="webcal://…  or  https://….ics"></label></div>
+  <label class="row" style="gap:8px"><input type="checkbox" name="archive" checked> Archive ${esc(t.name)}</label>
+  <p class="help" style="margin:0">Last season's calendars aren't copied, so old games don't come back. You can add or import players on the new team afterwards.</p>
+  <div class="row"><button class="btn primary">Create new season</button><button type="button" class="btn ghost" data-act="new-season-cancel">Cancel</button></div></form>`;
 }
 function feedRow(t,f){
   const href=f.url?httpsUrl(f.url):'';
@@ -533,10 +569,61 @@ function statsFor(teams){
     rows.push(...Object.values(per));}
   return rows.sort((a,b)=>b.g-a.g||b.a-a.a||a.p.name.localeCompare(b.p.name));
 }
+function statsTeams(){
+  const pool=teamsArr(!!ui.showArchived);
+  if(ui.statsTeam!=='all'&&!pool.some(t=>t.id===ui.statsTeam))ui.statsTeam='all';
+  return ui.statsTeam==='all'?pool:[S.teams[ui.statsTeam]];
+}
+function statsHeader(){
+  const anyArch=teamsArr(true).some(t=>t.archived),career=ui.statsMode==='career';
+  return `<div class="row" style="justify-content:space-between"><div class="seg"><button data-act="stats-mode" data-v="season" aria-pressed="${!career}">By team</button><button data-act="stats-mode" data-v="career" aria-pressed="${career}">Career</button></div>
+  ${anyArch&&!career?`<button class="chip" data-act="show-arch" aria-pressed="${!!ui.showArchived}">${ui.showArchived?'✓ ':''}Show archived</button>`:''}</div>`;
+}
+/* career: group each player across seasons by career link */
+function careerGroups(){
+  const lins={};
+  for(const t of teamsArr(true)){const l=lineageOf(t);(lins[l]=lins[l]||[]).push(t);}
+  const out=[];
+  for(const [lin,ts] of Object.entries(lins)){
+    const latest=ts.slice().sort((a,b)=>(b.created||0)-(a.created||0))[0];
+    const rows=statsFor(ts);const groups={};
+    for(const r of rows){const k=pkey(r.p);(groups[k]=groups[k]||{key:k,lin,latest,seasons:[]}).seasons.push(r);}
+    for(const g of Object.values(groups)){
+      g.seasons.sort((a,b)=>(a.t.created||0)-(b.t.created||0));
+      const tot={gp:0,g:0,a:0,sh:0,sog:0,pk:0,pka:0,sv:0,y:0,r:0,og:0};for(const r of g.seasons)for(const f in tot)tot[f]+=r[f];
+      const last=g.seasons[g.seasons.length-1];g.p=last.p;g.tot=tot;g.n=g.seasons.filter(r=>r.gp||r.g||r.a).length||g.seasons.length;out.push(g);}
+  }
+  return out;
+}
+function viewCareer(){
+  const lins=[...new Set(teamsArr(true).map(lineageOf))];
+  if(ui.careerLin!=='all'&&!lins.includes(ui.careerLin))ui.careerLin='all';
+  let groups=careerGroups().filter(g=>ui.careerLin==='all'||g.lin===ui.careerLin);
+  groups.sort((a,b)=>b.tot.g-a.tot.g||b.tot.a-a.tot.a||a.p.name.localeCompare(b.p.name));
+  const latestOf=l=>teamsArr(true).filter(t=>lineageOf(t)===l).sort((a,b)=>(b.created||0)-(a.created||0))[0];
+  const chips=`<div class="chips" role="group" aria-label="Filter by team"><button class="chip" data-act="career-lin" data-v="all" aria-pressed="${ui.careerLin==='all'}">All teams</button>${lins.map(l=>{const t=latestOf(l);return `<button class="chip" data-act="career-lin" data-v="${l}" aria-pressed="${ui.careerLin===l}"><span class="dot" style="background:${t.color}"></span>${esc(t.name.replace(/\s*\((?:spring|summer|fall|autumn|winter)\s*\d{4}\)$/i,''))}</button>`;}).join('')}</div>`;
+  const cell=(r,k)=>k==='pk'?(r.pka?`${r.pk}/${r.pka}`:'0'):k==='y'||k==='r'?(r[k]?`<span class="card ${k}"></span> ${r[k]}`:'0'):(k==='g'?`<b>${r.g}</b>`:r[k]);
+  let html=`<div class="section"><h2>Career stats</h2>${statsHeader()}${chips}`;
+  if(!groups.length)return html+`<p class="help">Add players to see career totals.</p></div>`+exportSection(true);
+  html+=`<div class="tbl-wrap"><table><thead><tr><th>Player</th><th class="n" title="Seasons">Seasons</th>${STAT_COLS.map(([k,h,full])=>`<th class="n"><abbr title="${full}">${h}</abbr></th>`).join('')}</tr></thead><tbody>`;
+  for(const g of groups){const open=ui.careerOpen===g.key;
+    html+=`<tr class="crow" data-act="career-open" data-v="${g.key}" aria-expanded="${open}"><td><b>${open?'▾':'▸'} ${esc(g.p.name)}</b></td><td class="n">${g.n}</td>${STAT_COLS.map(([k])=>`<td class="n">${cell(g.tot,k)}</td>`).join('')}</tr>`;
+    if(open)for(const r of g.seasons)html+=`<tr class="sub"><td><span class="meta" style="display:inline-flex;flex-wrap:nowrap"><span class="dot" style="background:${r.t.color}"></span>${esc(r.t.name)}${r.p.num?' · #'+esc(r.p.num):''}</span></td><td class="n"></td>${STAT_COLS.map(([k])=>`<td class="n">${cell(r,k)}</td>`).join('')}</tr>`;}
+  html+=`</tbody></table></div><p class="help">Tap a player to see each season. Seasons are linked when you use <b>Start new season</b> on a team page; players with the same name in a team's earlier seasons are linked too.</p></div>`;
+  return html+exportSection(true);
+}
+function careerCsv(){
+  const rows=[['Player','Team history','Season','Number','Games played','Goals','Assists','Shots','Shots on goal','Penalties scored','Penalties taken','Saves','Yellow cards','Red cards','Own goals']];
+  for(const g of careerGroups().sort((a,b)=>a.p.name.localeCompare(b.p.name))){
+    for(const r of g.seasons)rows.push([g.p.name,g.latest.name,r.t.name,r.p.num,r.gp,r.g,r.a,r.sh,r.sog,r.pk,r.pka,r.sv,r.y,r.r,r.og]);
+    const t=g.tot;rows.push([g.p.name,g.latest.name,'Career total','',t.gp,t.g,t.a,t.sh,t.sog,t.pk,t.pka,t.sv,t.y,t.r,t.og]);}
+  return rows;
+}
 function viewStats(){
-  if(!teamsArr().length)return `<div class="section">${emptyStart()}</div>`;
-  const teams=ui.statsTeam==='all'?teamsArr():[S.teams[ui.statsTeam]].filter(Boolean);
-  let html=`<div class="section"><h2>Season stats</h2>${teamChips(ui.statsTeam,'stats-team')}<div class="rec">`;
+  if(!teamsArr(true).length)return `<div class="section">${emptyStart()}</div>`;
+  if(ui.statsMode==='career')return viewCareer();
+  const teams=statsTeams();
+  let html=`<div class="section"><h2>Season stats</h2>${statsHeader()}${teamChips(ui.statsTeam,'stats-team',teamsArr(!!ui.showArchived))}<div class="rec">`;
   for(const t of teams){let w=0,l=0,d=0,gf=0,ga=0;for(const g of Object.values(t.games||{})){if(g.cancelled)continue;const r=result(g);if(!r)continue;gf+=r.us;ga+=r.th;r.r==='W'?w++:r.r==='L'?l++:d++;}
     html+=`<div><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span><span class="big">${w}-${l}-${d}</span><span class="meta">W-L-D · ${gf} for, ${ga} against</span></div>`;}
   html+=`</div>`;
@@ -544,13 +631,16 @@ function viewStats(){
   const cell=(r,k)=>k==='pk'?(r.pka?`${r.pk}/${r.pka}`:'0'):k==='y'||k==='r'?(r[k]?`<span class="card ${k}"></span> ${r[k]}`:'0'):(k==='g'?`<b>${r.g}</b>`:r[k]);
   html+=rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Player</th>${teams.length>1?'<th>Team</th>':''}${STAT_COLS.map(([k,h,full])=>`<th class="n" title="${full}"><abbr title="${full}">${h}</abbr></th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.p.name)}</b>${r.p.num?' <span class="meta" style="display:inline">#'+esc(r.p.num)+'</span>':''}</td>${teams.length>1?`<td><span class="meta"><span class="dot" style="background:${r.t.color}"></span>${esc(r.t.name)}</span></td>`:''}${STAT_COLS.map(([k])=>`<td class="n">${cell(r,k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
   <p class="help">GP games played · G goals · A assists · Sh shots · SOG shots on goal · PK penalties scored/taken · Sv saves · YC/RC yellow/red cards · OG own goals.</p>`:`<p class="help">Add players to see their totals here.</p>`;
-  html+=`</div><div class="section"><h2>Export</h2><p class="help">CSV files open in Excel, Numbers and Google Sheets. Exports follow the team filter above.</p>
-  <div class="row"><button class="btn primary" data-act="csv" data-v="events">Game log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button></div>
+  html+=`</div>`+exportSection(false);
+  return html;
+}
+function exportSection(career){
+  return `<div class="section"><h2>Export</h2><p class="help">CSV files open in Excel, Numbers and Google Sheets. ${career?'The career file lists every player season by season with a total row.':'Exports follow the team filter above.'}</p>
+  <div class="row">${career?'<button class="btn primary" data-act="csv" data-v="career">Career stats CSV</button>':'<button class="btn primary" data-act="csv" data-v="events">Game log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button>'}</div>
   <h3 style="font-size:18px;text-transform:uppercase;margin-top:8px">Backup</h3>
   ${(()=>{const b=backupState();return `<div class="notice ${b.overdue?'err':''}" role="status"><b>Last backup: ${b.ago}.</b> ${b.overdue?'You have changes that aren\'t backed up. Download a backup and save it to iCloud Drive.':b.changed?(b.last?'You have changes since then.':'Back up once you have games logged.'):b.last?'Everything is backed up.':'Nothing to back up yet.'}</div>`;})()}
   <p class="help">Save everything as one file (on iPhone: Save to Files → iCloud Drive), or restore from a backup. Restoring replaces teams that have the same ID and keeps the others.</p>
   <div class="row"><button class="btn ${backupState().overdue?'primary':''}" data-act="backup">Download backup</button><button class="btn" data-act="restore">Restore backup</button></div></div>`;
-  return html;
 }
 function viewModal(){
   const m=ui.modal;
@@ -682,7 +772,8 @@ async function shareImage(btn){
 function csvCell(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function toCsv(rows){return rows.map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n';}
 function buildCsv(kind){
-  const teams=ui.statsTeam==='all'?teamsArr():[S.teams[ui.statsTeam]].filter(Boolean);
+  const teams=statsTeams();
+  if(kind==='career')return careerCsv();
   if(kind==='events'){const rows=[['Date','Kickoff','Team','Opponent','Time logged','Event','Player','Number','Assist']];
     for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){
       const items=g.goals.map(x=>({t:x.t,ev:goalLabel(x),p:x.oppOg?null:x.p,a:x.a})).concat((g.events||[]).map(e=>({t:e.t,ev:EV[e.type]||e.type,p:e.p,a:null}))).sort((a,b)=>a.t-b.t);
@@ -754,7 +845,7 @@ fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.
   }catch(e){ui.modal={title:'Could not restore',msg:'That file is not a Touchline Tally backup. Choose a .json file made with "Download backup".',text:null};}
   render();});
 function present(g,pid){if(pid&&g.absent&&g.absent.includes(pid))g.absent=g.absent.filter(x=>x!==pid);}
-document.addEventListener('toggle',e=>{if(e.target.id==='who')ui.whoOpen=e.target.open;},true);
+document.addEventListener('toggle',e=>{if(e.target.id==='who')ui.whoOpen=e.target.open;if(e.target.id==='archList')ui.archOpen=e.target.open;},true);
 function doBackup(){
   return offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup')
     .then(ok=>{if(ok){S.lastBackup=Date.now();saveLocal();if(ui.afterFinal)ui.afterFinal='done';}render();return ok;});
@@ -767,10 +858,18 @@ document.addEventListener('click',e=>{
   case 'tab':ui.tab=b.dataset.tab;ui.view=ui.tab;ui.assistFor=null;ui.afterFinal=null;ui.notice=null;window.scrollTo(0,0);break;
   case 'filter':ui.filter=v;break;
   case 'stats-team':ui.statsTeam=v;break;
+  case 'stats-mode':ui.statsMode=v;break;
+  case 'show-arch':ui.showArchived=!ui.showArchived;break;
+  case 'career-lin':ui.careerLin=v;ui.careerOpen=null;break;
+  case 'career-open':ui.careerOpen=ui.careerOpen===v?null:v;break;
+  case 'new-season':ui.newSeason=true;break;
+  case 'new-season-cancel':ui.newSeason=false;break;
+  case 'archive':t.archived=true;touch(t.id);if(ui.filter===t.id)ui.filter='all';break;
+  case 'unarchive':t.archived=false;touch(t.id);break;
   case 'when':ui.when=v;break;
   case 'examples':loadExamples();return;
   case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.afterFinal=null;ui.armed=null;window.scrollTo(0,0);break;
-  case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;window.scrollTo(0,0);break;
+  case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;ui.newSeason=false;window.scrollTo(0,0);break;
   case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;ui.afterFinal=null;break;
   case 'color':t.color=v;touch(t.id);break;
   case 'del-player':if(ui.armed==='p'+v){t.players=t.players.filter(p=>p.id!==v);ui.armed=null;touch(t.id);}else arm('p'+v);break;
@@ -798,8 +897,8 @@ document.addEventListener('click',e=>{
   case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(g.events)g.events=g.events.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
   case 'opp':g.oppGoals=Math.max(0,(g.oppGoals||0)+(+v));ui.flashId=+v>0?'them':null;touch(t.id);render();ui.flashId=null;return;
   case 'final':g.final=!g.final;touch(t.id);ui.afterFinal=g.final?g.id:null;break;
-  case 'csv':{const k=v,rows=buildCsv(k);const scope=ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase());
-    offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
+  case 'csv':{const k=v,rows=buildCsv(k);const scope=k==='career'?'all-seasons':ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase());
+    offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='career'?'Career stats CSV':k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
   case 'backup':doBackup();return;
   case 'after-final-dismiss':ui.afterFinal=null;break;
   case 'restore':fileJson.click();return;
@@ -815,8 +914,18 @@ document.addEventListener('click',e=>{
 document.addEventListener('submit',e=>{
   const f=e.target.closest('[data-form]');if(!f)return;e.preventDefault();const d=Object.fromEntries(new FormData(f));const t=S.teams[ui.teamId];
   switch(f.dataset.form){
+  case 'new-season':{
+    const keep=new Set(new FormData(f).getAll('keep'));const id='t_'+rid();
+    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,lineage:lineageOf(t),prev:t.id,
+      players:t.players.filter(p=>keep.has(p.id)).map(p=>({id:'p_'+rid(),key:pkey(p),num:p.num,name:p.name})),
+      feeds:[],games:{},skip:t.skip,only:t.only,created:Date.now()};
+    if((d.feedLabel||'').trim()||(d.feedUrl||'').trim())nt.feeds.push({id:'f_'+rid(),label:(d.feedLabel||'').trim()||'Season calendar',url:(d.feedUrl||'').trim(),last:null});
+    S.teams[id]=nt;touch(id);
+    if(d.archive){t.archived=true;touch(t.id);if(ui.filter===t.id)ui.filter='all';}
+    ui.newSeason=false;ui.teamId=id;ui.view='team';ui.notice={teamId:id,text:`New season created with ${nt.players.length} players.`+(d.archive?` ${t.name} is archived.`:'')};
+    if(nt.feeds.some(f=>f.url))setTimeout(refreshFeeds,0);window.scrollTo(0,0);break;}
   case 'add-team':{const n=(d.name||'').trim();if(!n)return;const id=newTeam(n);ui.teamId=id;ui.view='team';break;}
-  case 'add-player':{const n=(d.name||'').trim();if(!n)return;t.players.push({id:'p_'+rid(),num:(d.num||'').trim(),name:n});touch(t.id);render();document.getElementById('pName').focus();return;}
+  case 'add-player':{const n=(d.name||'').trim();if(!n)return;newPlayer(t,n,(d.num||'').trim());touch(t.id);render();document.getElementById('pName').focus();return;}
   case 'add-feed':{t.feeds=t.feeds||[];t.feeds.push({id:'f_'+rid(),label:d.label.trim(),url:(d.url||'').trim(),last:null});touch(t.id);if(d.url)setTimeout(refreshFeeds,0);break;}
   case 'add-game':{const [y,m,dd]=d.date.split('-').map(Number);const [hh,mi]=(d.time||'09:00').split(':').map(Number);const id='g_'+rid();
     t.games[id]={id,title:'vs '+d.opp,opp:d.opp.trim(),home:null,start:new Date(y,m-1,dd,hh,mi).getTime(),allDay:false,loc:'',cancelled:false,src:'manual',oppGoals:0,goals:[],final:false};touch(t.id);break;}
