@@ -474,7 +474,8 @@ function viewGame(){
   <div class="board"><div class="side"><span class="nm">${esc(t.name)}</span><span class="n ${ui.flashId==='us'?'flash':''}">${g.goals.length}</span><button class="oppog" data-act="opp-og">+ Opp. own goal</button></div>
   <div class="dash">–</div>
   <div class="side"><span class="nm">${esc(g.opp||'Opponent')}</span><span class="n ${ui.flashId==='them'?'flash':''}">${th}</span>
-  <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div></div>`;
+  <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div></div>
+  <div class="row" style="justify-content:flex-end"><button class="btn sm ${isPast(g)?'primary':''}" data-act="share-card">Share result</button></div>`;
   if(af){
     html+=`<div class="assist" role="status"><div><b>Goal: ${esc(pname(t,af.p))}</b> at ${fmtTime(af.t)}. Who assisted?</div><div class="chips" style="flex-wrap:wrap">
     ${t.players.filter(p=>p.id!==af.p&&!absent.has(p.id)).map(p=>`<button class="chip" data-act="assist" data-v="${p.id}">${esc(p.name)}</button>`).join('')}<button class="chip" data-act="assist" data-v="">No assist</button></div></div>`;
@@ -538,9 +539,128 @@ function viewStats(){
 }
 function viewModal(){
   const m=ui.modal;
+  if(m.share){const sh=m.share;
+    return `<div class="modal" role="dialog" aria-modal="true" aria-label="Share result"><div style="max-height:calc(100dvh - 32px);overflow:auto">
+    <div class="row" style="justify-content:space-between"><h3 style="font-size:22px">Share result</h3><button class="btn sm ghost" data-act="close-modal">Close</button></div>
+    ${sh.loading?'<p class="help">Making the image…</p>':`<img src="${sh.url}" alt="Result card" style="width:100%;max-height:52dvh;object-fit:contain;border-radius:10px;background:#10301F">
+    <div class="row"><button class="btn primary" data-act="share-img">${window.claude?'Save image':'Share image'}</button><button class="btn" data-act="copy-summary">Copy as text</button></div>
+    <p class="help">You can also press and hold the image to save or copy it.</p>
+    <textarea id="modalText" readonly style="min-height:110px;font-family:var(--f-body);font-size:14px">${esc(sh.text)}</textarea>`}</div></div>`;}
   return `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(m.title)}"><div><h3 style="font-size:22px">${esc(m.title)}</h3><p class="help">${esc(m.msg)}</p>
   ${m.text!=null?`<textarea id="modalText" readonly style="min-height:200px">${esc(m.text)}</textarea>`:''}
   <div class="row">${m.text!=null?'<button class="btn primary" data-act="copy">Copy</button>':''}<button class="btn" data-act="close-modal">Close</button></div></div></div>`;
+}
+
+/* ---------- share card ---------- */
+function gameSummary(t,g){
+  const r=result(g)||{us:g.goals.length,th:(g.oppGoals||0)+ownGoals(g),r:null};
+  const order=[],sc={},as={},sv={};
+  for(const x of g.goals.slice().sort((a,b)=>a.t-b.t)){
+    const k=x.oppOg?'__og':(x.p||'__unk');if(!sc[k]){sc[k]={n:0,pk:0};order.push(k);}sc[k].n++;if(x.pk)sc[k].pk++;
+    if(x.a)as[x.a]=(as[x.a]||0)+1;}
+  for(const e of g.events||[])if(e.type==='save'&&e.p)sv[e.p]=(sv[e.p]||0)+1;
+  const nm=k=>k==='__og'?'Own goal ('+(g.opp||'opponent')+')':k==='__unk'?'Other player':pname(t,k);
+  const scorers=order.map(k=>{const v=sc[k];let s=nm(k);if(v.n>1)s+=' '+v.n;if(v.pk)s+=` (${v.pk>1?v.pk+' ':''}PK)`;return s;});
+  const fmt=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]).map(([id,n])=>pname(t,id)+(n>1?' '+n:''));
+  const ogs=(g.events||[]).filter(e=>e.type==='og').map(e=>pname(t,e.p));
+  const list=g.goals.slice().sort((a,b)=>a.t-b.t).map(x=>({name:x.oppOg?'Own goal by '+(g.opp||'opponent'):x.p?pname(t,x.p):'Other player',pk:!!x.pk,a:x.a?pname(t,x.a):'',t:x.t}));
+  return{r,scorers,assists:fmt(as),saves:fmt(sv),ogs,list,done:isPast(g)};
+}
+function summaryText(t,g){
+  const m=gameSummary(t,g);const d=new Date(g.start);
+  const lines=[`${t.name.replace(/ \(example\)$/,'')} ${m.r.us}–${m.r.th} ${g.opp||'Opponent'}${m.r.r&&m.done?' ('+({W:'Win',L:'Loss',D:'Draw'})[m.r.r]+')':''}`,
+    d.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})+(g.loc?' · '+g.loc:'')];
+  if(m.list.length){lines.push('','Goals:');m.list.forEach((x,i)=>lines.push(`${i+1}. ${x.name}${x.pk?' (PK)':''}${x.a?', assist '+x.a:''} · ${fmtTime(x.t)}`));}
+  if(m.saves.length){if(m.list.length)lines.push('');lines.push('Saves: '+m.saves.join(', '));}
+  return lines.join('\n');
+}
+function wrapLines(ctx,text,maxW){const words=text.split(' ');const out=[];let line='';
+  for(const w of words){const tryL=line?line+' '+w:w;if(ctx.measureText(tryL).width>maxW&&line){out.push(line);line=w;}else line=tryL;}
+  if(line)out.push(line);return out;}
+async function drawCard(t,g){
+  try{await Promise.all([document.fonts.load('700 120px "Barlow Condensed"'),document.fonts.load('600 40px "Figtree"'),document.fonts.load('400 40px "Figtree"')]);}catch(e){}
+  const probe=paintCard(t,g,4000);  // measure, then draw at the height the content needs
+  return paintCard(t,g,Math.max(1350,probe.y+150)).c;
+}
+function paintCard(t,g,cardH){
+  const D='"Barlow Condensed","Arial Narrow",sans-serif',B='"Figtree",system-ui,sans-serif';
+  const m=gameSummary(t,g),tn=t.name.replace(/ \(example\)$/,''),on=g.opp||'Opponent';
+  const W=1080,H=cardH,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  // pitch
+  x.fillStyle='#10301F';x.fillRect(0,0,W,H);
+  for(let i=0;i*150<H;i++){x.fillStyle=i%2?'rgba(255,255,255,0.025)':'rgba(0,0,0,0)';x.fillRect(0,i*150,W,150);}
+  x.strokeStyle='rgba(255,255,255,0.10)';x.lineWidth=6;
+  x.strokeRect(40,40,W-80,H-80);
+  x.beginPath();x.arc(W/2,H-40,170,Math.PI,0);x.stroke();
+  x.beginPath();x.arc(W-40,40,60,Math.PI/2,Math.PI);x.stroke();
+  const L=96,R=W-96;let y=150;
+  // header
+  x.fillStyle='#F5C451';x.font=`700 40px ${D}`;x.textBaseline='alphabetic';
+  x.fillText((m.done?'FULL TIME':'LIVE SCORE').split('').join(String.fromCharCode(8202)),L,y);
+  x.fillStyle='rgba(255,255,255,0.75)';x.font=`500 34px ${B}`;
+  const d=new Date(g.start);y+=58;
+  x.fillText(d.toLocaleDateString([], {weekday:'long',month:'long',day:'numeric',year:'numeric'})+(g.allDay?'':' · '+fmtTime(g.start)),L,y);
+  if(g.loc){y+=46;x.fillText(wrapLines(x,g.loc,R-L)[0],L,y);}
+  // scoreboard rows
+  y+=70;
+  const row=(name,score,color,win)=>{
+    x.fillStyle=color;x.fillRect(L,y,14,170);
+    x.font=`700 190px ${D}`;x.textAlign='right';x.fillStyle=win===false?'rgba(255,255,255,0.55)':'#FFFFFF';x.fillText(String(score),R,y+160);
+    const sw=x.measureText(String(score)).width;x.textAlign='left';
+    let size=76;x.font=`700 ${size}px ${D}`;let lines=wrapLines(x,name.toUpperCase(),R-L-60-sw-40);
+    if(lines.length>2){size=60;x.font=`700 ${size}px ${D}`;lines=wrapLines(x,name.toUpperCase(),R-L-60-sw-40).slice(0,2);}
+    const top=y+85-(lines.length-1)*size*0.5+size*0.35;
+    lines.forEach((ln,i)=>x.fillText(ln,L+46,top+i*size*0.95));
+    y+=200;};
+  const res=m.r.r&&m.done?m.r.r:null;
+  row(tn,m.r.us,t.color,res?res!=='L':null);
+  row(on,m.r.th,'rgba(255,255,255,0.35)',res?res!=='W':null);
+  if(res){x.font=`700 44px ${D}`;const lbl=({W:'WIN',L:'LOSS',D:'DRAW'})[res];const w=x.measureText(lbl).width+48;
+    x.fillStyle=res==='W'?'#3FAE72':res==='L'?'#D9534A':'rgba(255,255,255,0.25)';
+    x.beginPath();x.roundRect?x.roundRect(L,y,w,64,32):x.rect(L,y,w,64);x.fill();
+    x.fillStyle='#FFFFFF';x.fillText(lbl,L+24,y+47);y+=64;}
+  y+=60;
+  // lists
+  const sect=(label,items)=>{if(!items.length)return;
+    x.fillStyle='#F5C451';x.font=`700 36px ${D}`;x.fillText(label,L,y);y+=54;
+    x.fillStyle='#FFFFFF';x.font=`600 42px ${B}`;
+    for(const ln of wrapLines(x,items.join(', '),R-L)){x.fillText(ln,L,y);y+=56;}
+    y+=26;};
+  if(m.list.length){
+    x.fillStyle='#F5C451';x.font=`700 36px ${D}`;x.fillText('GOALS',L,y);y+=58;
+    m.list.forEach((g2,i)=>{
+      x.textAlign='left';x.fillStyle='#F5C451';x.font=`700 44px ${D}`;x.fillText(String(i+1),L,y);
+      x.textAlign='right';x.fillStyle='rgba(255,255,255,0.55)';x.font=`500 32px ${B}`;const tm=fmtTime(g2.t);x.fillText(tm,R,y);const tw=x.measureText(tm).width;
+      x.textAlign='left';const nx=L+64,maxW=R-tw-32-nx;
+      x.fillStyle='#FFFFFF';x.font=`600 42px ${B}`;let nm=g2.name+(g2.pk?' (PK)':'');
+      while(x.measureText(nm).width>maxW&&nm.length>4)nm=nm.slice(0,-2)+'…';
+      x.fillText(nm,nx,y);
+      if(g2.a){const nw=x.measureText(nm+'  ').width;x.font=`500 32px ${B}`;x.fillStyle='rgba(255,255,255,0.65)';const at='assist '+g2.a;
+        if(nw+x.measureText(at).width<=maxW)x.fillText(at,nx+nw,y);else{y+=40;x.fillText(at,nx,y);}}
+      y+=74;});
+    y+=16;}
+  sect('SAVES',m.saves);
+  if(!m.list.length&&!m.saves.length){x.fillStyle='rgba(255,255,255,0.6)';x.font=`500 40px ${B}`;x.fillText(m.r.us?'Scorers not recorded':'No goals this time. On to the next one.',L,y);}
+  // footer
+  x.fillStyle='rgba(255,255,255,0.55)';x.font=`700 30px ${D}`;x.textAlign='left';x.fillText('TOUCHLINE TALLY',L,H-86);
+  return {c,y};
+}
+async function openShare(t,g){
+  ui.modal={title:'Share result',msg:'Making the image…',share:{loading:true}};render();
+  try{
+    const c=await drawCard(t,g);
+    const blob=await new Promise(res=>c.toBlob(res,'image/png'));
+    const d=new Date(g.start);const slug=(t.name.replace(/ \(example\)$/,'')+'-vs-'+(g.opp||'opponent')).replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase();
+    ui.modal={title:'Share result',msg:'',share:{url:URL.createObjectURL(blob),blob,filename:`${isoDate(g.start)}-${slug}.png`,text:summaryText(t,g)}};
+  }catch(e){ui.modal={title:'Could not make the image',msg:'Copy the text version below instead.',text:summaryText(t,g)};}
+  render();
+}
+async function shareImage(btn){
+  const sh=ui.modal&&ui.modal.share;if(!sh||!sh.blob)return;
+  if(window.claude){let dl=null;try{dl=await window.claude.use('downloads');}catch(e){}
+    if(dl){try{await dl.save({filename:sh.filename,data:sh.blob});}catch(e){if(!e||e.code!=='declined')btn.textContent='Saving not available here';}return;}}
+  try{const f=new File([sh.blob],sh.filename,{type:'image/png'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});return;}}catch(e){if(e&&e.name==='AbortError')return;}
+  try{const a=document.createElement('a');a.href=sh.url;a.download=sh.filename;document.body.appendChild(a);a.click();a.remove();}catch(e){btn.textContent='Press and hold the image to save it';}
 }
 
 /* ---------- export ---------- */
@@ -663,7 +783,10 @@ document.addEventListener('click',e=>{
     offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
   case 'backup':offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup');return;
   case 'restore':fileJson.click();return;
-  case 'close-modal':ui.modal=null;break;
+  case 'close-modal':if(ui.modal&&ui.modal.share&&ui.modal.share.url)URL.revokeObjectURL(ui.modal.share.url);ui.modal=null;break;
+  case 'share-card':openShare(t,g);return;
+  case 'share-img':shareImage(b);return;
+  case 'copy-summary':{const ta=document.getElementById('modalText');try{navigator.clipboard.writeText(ta.value).then(()=>{b.textContent='Copied';},()=>ta.select());}catch(err){ta.select();}return;}
   case 'copy':{const ta=document.getElementById('modalText');const done=()=>{b.textContent='Copied';};
     try{navigator.clipboard.writeText(ta.value).then(done,()=>{ta.select();});}catch(err){ta.select();}return;}
   default:return;}
