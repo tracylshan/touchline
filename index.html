@@ -109,6 +109,21 @@ textarea{min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12p
 .pbtn .pn{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pbtn .pc{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pbtn.hot{border-color:var(--flag);background:var(--flag-soft)}
+.ptile{position:relative;display:grid}
+.ptile .pbtn{padding-right:46px}
+.pmore{position:absolute;top:6px;right:6px;width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;letter-spacing:1px;line-height:1}
+.ptile.out .pbtn{opacity:.55;border-style:dashed}
+.pbtn .pc{min-width:0}
+.card{display:inline-block;width:9px;height:12px;border-radius:2px;vertical-align:-1px}
+.card.y{background:#F2C230}.card.r{background:#D33A2F}
+.evgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.evbtn{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 10px;font-weight:600;text-align:left;display:flex;align-items:center;gap:8px;min-height:48px}
+.evbtn:active{transform:scale(.97)}
+.sheet{border-color:var(--line);background:var(--chip)}
+.oppog{background:none;border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);color:var(--bg);border-radius:9px;font-size:12px;font-weight:600;padding:7px 10px;opacity:.85}
+details.who{border:1px solid var(--line);border-radius:14px;padding:10px 14px;background:var(--surface)}
+details.who summary{cursor:pointer}
+abbr{text-decoration:none}
 .assist{border:1px solid var(--flag);background:var(--flag-soft);border-radius:14px;padding:12px;display:grid;gap:8px}
 .flash{animation:flash .6s ease-out}
 @keyframes flash{0%{transform:scale(1.15)}100%{transform:scale(1)}}
@@ -317,7 +332,11 @@ function importRoster(teamId,text){
 const teamsArr=()=>Object.values(S.teams).sort((a,b)=>(a.created||0)-(b.created||0));
 function allGames(){const out=[];for(const t of teamsArr())for(const g of Object.values(t.games||{}))out.push({t,g});return out.sort((a,b)=>a.g.start-b.g.start);}
 const isPast=g=>g.final||g.start<Date.now()-2*3600e3;
-function result(g){const us=g.goals.length,th=g.oppGoals||0;if(!isPast(g)&&!us&&!th)return null;return{us,th,r:us>th?'W':us<th?'L':'D'};}
+const EV={sot:'Shot on goal',shot:'Shot (missed)',save:'Save',pkmiss:'Penalty missed',yellow:'Yellow card',red:'Red card',og:'Own goal'};
+const evs=g=>g.events||(g.events=[]);
+const ownGoals=g=>(g.events||[]).filter(e=>e.type==='og').length;
+function goalLabel(x){return x.oppOg?'Opponent own goal':x.pk?'Penalty goal':'Goal';}
+function result(g){const us=g.goals.length,th=(g.oppGoals||0)+ownGoals(g);if(!isPast(g)&&!us&&!th)return null;return{us,th,r:us>th?'W':us<th?'L':'D'};}
 function player(t,id){return(t.players||[]).find(p=>p.id===id);}
 function pname(t,id){if(!id)return 'Unknown';const p=player(t,id);return p?p.name:'Removed player';}
 function newTeam(name){const id='t_'+rid();S.teams[id]={id,name,color:COLORS[teamsArr().length%COLORS.length],players:[],feeds:[],games:{},skip:'practice, training',only:'',created:Date.now()};touch(id);return id;}
@@ -432,25 +451,53 @@ function feedRow(t,f){
   <button class="btn sm ghost ${ui.armed==='f'+f.id?'armed':'danger'}" data-act="del-feed" data-v="${f.id}">${ui.armed==='f'+f.id?'Tap to remove':'Remove'}</button></div>
   ${pasting?`<textarea id="pasteBox" placeholder="BEGIN:VCALENDAR…"></textarea><div><button class="btn sm primary" data-act="paste-go" data-v="${f.id}">Import pasted text</button></div>`:''}</div>`;
 }
+function tally(g){
+  const c={};const get=id=>c[id]||(c[id]={g:0,a:0,sh:0,sog:0,pk:0,pka:0,sv:0,y:0,r:0,og:0});
+  for(const x of g.goals){if(x.p){const k=get(x.p);k.g++;k.sh++;k.sog++;if(x.pk){k.pk++;k.pka++;}}if(x.a)get(x.a).a++;}
+  for(const e of g.events||[]){if(!e.p)continue;const k=get(e.p);
+    if(e.type==='sot'){k.sh++;k.sog++;}else if(e.type==='shot')k.sh++;else if(e.type==='save')k.sv++;
+    else if(e.type==='pkmiss'){k.pka++;k.sh++;}else if(e.type==='yellow')k.y++;else if(e.type==='red')k.r++;else if(e.type==='og')k.og++;}
+  return c;
+}
+function countLine(c){
+  const parts=[`${c.g} G`];if(c.a)parts.push(c.a+' A');if(c.sh)parts.push(c.sh+' Sh');if(c.sv)parts.push(c.sv+' Sv');if(c.og)parts.push(c.og+' OG');
+  return esc(parts.join(' · '))+(c.y?' <span class="card y" title="Yellow card"></span>'.repeat(c.y):'')+(c.r?' <span class="card r" title="Red card"></span>'.repeat(c.r):'');
+}
 function viewGame(){
   const t=S.teams[ui.teamId],g=t&&t.games[ui.gameId];if(!g){ui.view='games';return viewGames();}
-  const counts={};for(const x of g.goals){if(x.p){(counts[x.p]=counts[x.p]||{g:0,a:0}).g++;}if(x.a){(counts[x.a]=counts[x.a]||{g:0,a:0}).a++;}}
+  const counts=tally(g),absent=new Set(g.absent||[]);
   const af=ui.assistFor&&g.goals.find(x=>x.id===ui.assistFor);
+  const mp=ui.moreFor&&player(t,ui.moreFor);
+  const th=(g.oppGoals||0)+ownGoals(g);
   let html=`<div class="section"><div class="back"><button class="btn ghost" data-act="back">‹ Back</button><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)} · ${fmtDay(g.start)}${g.allDay?'':' · '+fmtTime(g.start)}</span></div>
   ${g.cancelled?'<div class="notice err">The calendar marks this game as cancelled.</div>':''}
-  <div class="board"><div class="side"><span class="nm">${esc(t.name)}</span><span class="n ${ui.flashId==='us'?'flash':''}">${g.goals.length}</span><span class="label" style="color:inherit;opacity:.6">Tap a player</span></div>
+  <div class="board"><div class="side"><span class="nm">${esc(t.name)}</span><span class="n ${ui.flashId==='us'?'flash':''}">${g.goals.length}</span><button class="oppog" data-act="opp-og">+ Opp. own goal</button></div>
   <div class="dash">–</div>
-  <div class="side"><span class="nm">${esc(g.opp||'Opponent')}</span><span class="n ${ui.flashId==='them'?'flash':''}">${g.oppGoals||0}</span>
+  <div class="side"><span class="nm">${esc(g.opp||'Opponent')}</span><span class="n ${ui.flashId==='them'?'flash':''}">${th}</span>
   <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div></div>`;
   if(af){
     html+=`<div class="assist" role="status"><div><b>Goal: ${esc(pname(t,af.p))}</b> at ${fmtTime(af.t)}. Who assisted?</div><div class="chips" style="flex-wrap:wrap">
-    ${t.players.filter(p=>p.id!==af.p).map(p=>`<button class="chip" data-act="assist" data-v="${p.id}">${esc(p.name)}</button>`).join('')}<button class="chip" data-act="assist" data-v="">No assist</button></div></div>`;
+    ${t.players.filter(p=>p.id!==af.p&&!absent.has(p.id)).map(p=>`<button class="chip" data-act="assist" data-v="${p.id}">${esc(p.name)}</button>`).join('')}<button class="chip" data-act="assist" data-v="">No assist</button></div></div>`;
+  }
+  if(mp){
+    const b=(type,label,cls)=>`<button class="evbtn ${cls||''}" data-act="ev" data-v="${type}">${label}</button>`;
+    html+=`<div class="assist sheet" role="group" aria-label="More for ${esc(mp.name)}"><div class="row" style="justify-content:space-between"><b>${esc(mp.name)}${mp.num?' #'+esc(mp.num):''}</b><button class="btn sm ghost" data-act="more-close">Close</button></div>
+    <div class="evgrid">${b('sot','Shot on goal')}${b('shot','Shot missed')}${b('save','Save')}${b('pkgoal','Penalty scored')}${b('pkmiss','Penalty missed')}${b('og','Own goal')}${b('yellow','<span class="card y"></span> Yellow card')}${b('red','<span class="card r"></span> Red card')}</div>
+    <p class="help">Goals count as shots on goal automatically. An own goal adds one to ${esc(g.opp||'the opponent')}'s score.</p></div>`;
   }
   if(t.players.length){
-    html+=`<div class="pgrid">${t.players.map(p=>{const c=counts[p.id]||{g:0,a:0};return `<button class="pbtn ${c.g?'hot':''}" data-act="goal" data-v="${p.id}"><span class="num">${esc(p.num||'·')}</span><span class="pn">${esc(p.name)}</span><span class="pc">${c.g} G${c.a?' · '+c.a+' A':''}</span></button>`;}).join('')}
-    <button class="pbtn" data-act="goal" data-v=""><span class="num">?</span><span class="pn">Other player</span><span class="pc">not on your list</span></button></div>`;
+    const order=t.players.filter(p=>!absent.has(p.id)).concat(t.players.filter(p=>absent.has(p.id)));
+    html+=`<div class="pgrid">${order.map(p=>{const c=counts[p.id]||{g:0,a:0,sh:0,sv:0,og:0,y:0,r:0};const out=absent.has(p.id);
+      return `<div class="ptile ${out?'out':''}"><button class="pbtn ${c.g?'hot':''}" data-act="goal" data-v="${p.id}" aria-label="Goal for ${esc(p.name)}"><span class="num">${esc(p.num||'·')}</span><span class="pn">${esc(p.name)}</span><span class="pc">${out?'Not playing':countLine(c)}</span></button><button class="pmore" data-act="more" data-v="${p.id}" aria-label="More events for ${esc(p.name)}">•••</button></div>`;}).join('')}
+    <div class="ptile"><button class="pbtn" data-act="goal" data-v=""><span class="num">?</span><span class="pn">Other player</span><span class="pc">not on your list</span></button></div></div>
+    <p class="help">Tap a name for a goal. Tap ••• for shots, saves, penalties, cards and own goals.</p>
+    <details class="who" id="who" ${ui.whoOpen?'open':''}><summary><span class="label">Who's playing</span> <span class="meta" style="display:inline">${t.players.length-absent.size} of ${t.players.length}</span></summary>
+    <div class="chips" style="flex-wrap:wrap;padding-top:8px">${t.players.map(p=>`<button class="chip" data-act="absent" data-v="${p.id}" aria-pressed="${!absent.has(p.id)}">${absent.has(p.id)?'':'✓ '}${esc(p.name)}</button>`).join('')}</div>
+    <p class="help">Untick anyone who missed this game. Games played in Stats counts only the players ticked here.</p></details>`;
   }else html+=`<div class="empty"><p>Add players to ${esc(t.name)} so you can tap them when they score.</p><button class="btn primary" data-act="open-team" data-team="${t.id}">Add players</button></div>`;
-  html+=`</div><div class="section"><h2>Goal log</h2>`+(g.goals.length?`<div class="list">${g.goals.slice().reverse().map(x=>`<div class="logrow"><span class="t">${fmtTime(x.t)}</span><span class="w"><b>${esc(pname(t,x.p))}</b>${x.a?' <span class="meta" style="display:inline">assist '+esc(pname(t,x.a))+'</span>':''}</span><button class="btn sm ghost danger" data-act="undo" data-v="${x.id}">Remove</button></div>`).join('')}</div>`:`<p class="help">No goals yet. Each tap adds a goal with the time, and you can add the assist right after.</p>`)+`</div>
+  const items=g.goals.map(x=>({id:x.id,t:x.t,what:goalLabel(x),who:x.oppOg?'':pname(t,x.p),extra:x.a?'assist '+pname(t,x.a):'',goal:true}))
+    .concat((g.events||[]).map(e=>({id:e.id,t:e.t,what:EV[e.type]||e.type,who:pname(t,e.p),extra:e.type==='og'?'counts for '+(g.opp||'opponent'):'',type:e.type}))).sort((a,b)=>b.t-a.t);
+  html+=`</div><div class="section"><h2>Game log</h2>`+(items.length?`<div class="list">${items.map(x=>`<div class="logrow"><span class="t">${fmtTime(x.t)}</span><span class="w">${x.type==='yellow'?'<span class="card y"></span> ':x.type==='red'?'<span class="card r"></span> ':''}<b>${esc(x.what)}</b>${x.who?' · '+esc(x.who):''}${x.extra?' <span class="meta" style="display:inline">'+esc(x.extra)+'</span>':''}</span><button class="btn sm ghost danger" data-act="undo" data-v="${x.id}">Remove</button></div>`).join('')}</div>`:`<p class="help">Nothing logged yet. Each tap is saved with the time, so you can remove a mistake here.</p>`)+`</div>
   <div class="section"><h2>Game details</h2>
   <div class="row"><label class="field"><span class="label">Opponent</span><input type="text" id="gdOpp" data-field="game-opp" value="${esc(g.opp||'')}"></label>
   <label class="field"><span class="label">Kickoff</span><input type="datetime-local" id="gdStart" data-field="game-start" value="${localInput(g.start)}"></label></div>
@@ -461,10 +508,14 @@ function viewGame(){
   ${g.src==='feed'?'<p class="help">A deleted calendar game comes back the next time you import that calendar.</p>':''}</div>`;
   return html;
 }
+const STAT_COLS=[['gp','GP','Games played'],['g','G','Goals'],['a','A','Assists'],['sh','Sh','Shots'],['sog','SOG','Shots on goal'],['pk','PK','Penalties scored / taken'],['sv','Sv','Saves'],['y','YC','Yellow cards'],['r','RC','Red cards'],['og','OG','Own goals']];
 function statsFor(teams){
   const rows=[];
-  for(const t of teams){const per={};for(const p of t.players)per[p.id]={t,p,g:0,a:0,gp:new Set()};
-    for(const g of Object.values(t.games||{}))for(const x of g.goals){if(x.p&&per[x.p]){per[x.p].g++;per[x.p].gp.add(g.id);}if(x.a&&per[x.a])per[x.a].a++;}
+  for(const t of teams){const per={};for(const p of t.players)per[p.id]={t,p,gp:0,g:0,a:0,sh:0,sog:0,pk:0,pka:0,sv:0,y:0,r:0,og:0};
+    for(const g of Object.values(t.games||{})){
+      if(g.cancelled)continue;const c=tally(g);const ab=new Set(g.absent||[]);const played=isPast(g)||g.goals.length||(g.events||[]).length;
+      for(const id in per){const r=per[id];if(played&&!ab.has(id))r.gp++;const k=c[id];if(k)for(const f of ['g','a','sh','sog','pk','pka','sv','y','r','og'])r[f]+=k[f];}
+    }
     rows.push(...Object.values(per));}
   return rows.sort((a,b)=>b.g-a.g||b.a-a.a||a.p.name.localeCompare(b.p.name));
 }
@@ -476,9 +527,11 @@ function viewStats(){
     html+=`<div><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span><span class="big">${w}-${l}-${d}</span><span class="meta">W-L-D · ${gf} for, ${ga} against</span></div>`;}
   html+=`</div>`;
   const rows=statsFor(teams);
-  html+=rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Player</th>${teams.length>1?'<th>Team</th>':''}<th class="n">Goals</th><th class="n">Assists</th><th class="n">Games scored in</th></tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.p.name)}</b>${r.p.num?' <span class="meta" style="display:inline">#'+esc(r.p.num)+'</span>':''}</td>${teams.length>1?`<td><span class="meta"><span class="dot" style="background:${r.t.color}"></span>${esc(r.t.name)}</span></td>`:''}<td class="n"><b>${r.g}</b></td><td class="n">${r.a}</td><td class="n">${r.gp.size}</td></tr>`).join('')}</tbody></table></div>`:`<p class="help">Add players to see their totals here.</p>`;
+  const cell=(r,k)=>k==='pk'?(r.pka?`${r.pk}/${r.pka}`:'0'):k==='y'||k==='r'?(r[k]?`<span class="card ${k}"></span> ${r[k]}`:'0'):(k==='g'?`<b>${r.g}</b>`:r[k]);
+  html+=rows.length?`<div class="tbl-wrap"><table><thead><tr><th>Player</th>${teams.length>1?'<th>Team</th>':''}${STAT_COLS.map(([k,h,full])=>`<th class="n" title="${full}"><abbr title="${full}">${h}</abbr></th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr><td><b>${esc(r.p.name)}</b>${r.p.num?' <span class="meta" style="display:inline">#'+esc(r.p.num)+'</span>':''}</td>${teams.length>1?`<td><span class="meta"><span class="dot" style="background:${r.t.color}"></span>${esc(r.t.name)}</span></td>`:''}${STAT_COLS.map(([k])=>`<td class="n">${cell(r,k)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+  <p class="help">GP games played · G goals · A assists · Sh shots · SOG shots on goal · PK penalties scored/taken · Sv saves · YC/RC yellow/red cards · OG own goals.</p>`:`<p class="help">Add players to see their totals here.</p>`;
   html+=`</div><div class="section"><h2>Export</h2><p class="help">CSV files open in Excel, Numbers and Google Sheets. Exports follow the team filter above.</p>
-  <div class="row"><button class="btn primary" data-act="csv" data-v="goals">Goal log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button></div>
+  <div class="row"><button class="btn primary" data-act="csv" data-v="events">Game log CSV</button><button class="btn" data-act="csv" data-v="totals">Player totals CSV</button><button class="btn" data-act="csv" data-v="games">Game results CSV</button></div>
   <h3 style="font-size:18px;text-transform:uppercase;margin-top:8px">Backup</h3><p class="help">Save everything as one file, or restore from a backup. Restoring replaces teams that have the same ID and keeps the others.</p>
   <div class="row"><button class="btn" data-act="backup">Download backup</button><button class="btn" data-act="restore">Restore backup</button></div></div>`;
   return html;
@@ -495,12 +548,16 @@ function csvCell(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'
 function toCsv(rows){return rows.map(r=>r.map(csvCell).join(',')).join('\r\n')+'\r\n';}
 function buildCsv(kind){
   const teams=ui.statsTeam==='all'?teamsArr():[S.teams[ui.statsTeam]].filter(Boolean);
-  if(kind==='goals'){const rows=[['Date','Kickoff','Team','Opponent','Scorer','Number','Assist','Time logged']];
-    for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start))for(const x of g.goals){const p=player(t,x.p);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,pname(t,x.p),p?p.num:'',x.a?pname(t,x.a):'',fmtTime(x.t)]);}
+  if(kind==='events'){const rows=[['Date','Kickoff','Team','Opponent','Time logged','Event','Player','Number','Assist']];
+    for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){
+      const items=g.goals.map(x=>({t:x.t,ev:goalLabel(x),p:x.oppOg?null:x.p,a:x.a})).concat((g.events||[]).map(e=>({t:e.t,ev:EV[e.type]||e.type,p:e.p,a:null}))).sort((a,b)=>a.t-b.t);
+      for(const x of items){const p=player(t,x.p);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,fmtTime(x.t),x.ev,x.p?pname(t,x.p):(x.ev==='Opponent own goal'?'':'Unknown'),p?p.num:'',x.a?pname(t,x.a):'']);}}
     return rows;}
-  if(kind==='totals'){const rows=[['Team','Player','Number','Goals','Assists','Games scored in']];for(const r of statsFor(teams))rows.push([r.t.name,r.p.name,r.p.num,r.g,r.a,r.gp.size]);return rows;}
-  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Status']];
-  for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){const r=result(g);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming']);}
+  if(kind==='totals'){const rows=[['Team','Player','Number','Games played','Goals','Assists','Shots','Shots on goal','Penalties scored','Penalties taken','Saves','Yellow cards','Red cards','Own goals']];
+    for(const r of statsFor(teams))rows.push([r.t.name,r.p.name,r.p.num,r.gp,r.g,r.a,r.sh,r.sog,r.pk,r.pka,r.sv,r.y,r.r,r.og]);return rows;}
+  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Status','Players played','Absent']];
+  for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){const r=result(g);const ab=(g.absent||[]).map(id=>pname(t,id));
+    rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming',t.players.length-ab.length,ab.join('; ')]);}
   return rows;
 }
 async function offerFile(filename,text,title){
@@ -533,7 +590,12 @@ function loadExamples(){
     const base=new Date();base.setHours(9,0,0,0);
     opps.forEach((o,i)=>{const gid='g_'+rid();const start=base.getTime()+(offsetDays+i*7)*864e5;const past=start<Date.now();
       const goals=[];if(past){const n=(i*3+name.length)%4;for(let k=0;k<n;k++){const p=t.players[(i+k)%t.players.length];const a=k%2?t.players[(i+k+1)%t.players.length].id:null;goals.push({id:rid(),p:p.id,a,t:start+(10+k*12)*6e4});}}
-      t.games[gid]={id:gid,title:'vs '+o,opp:o,home:i%2===0,start,allDay:false,loc:i%2?'Away field':'Memorial Park, Field 3',cancelled:false,src:'manual',oppGoals:past?(i+1)%3:0,goals,final:past};});
+      const events=[];const absent=[];
+      if(past){const P=t.players;const add=(type,k,m)=>events.push({id:rid(),type,p:P[k%P.length].id,t:start+m*6e4});
+        add('sot',i,8);add('shot',i+1,15);add('sot',i+2,22);add('shot',i,31);add('save',P.length-1,18);add('save',P.length-1,40);
+        if(i===1)add('yellow',i+2,35);if(i===2){add('pkmiss',1,27);goals.push({id:rid(),p:P[0].id,a:null,t:start+44*6e4,pk:true});}
+        if(i===0)add('og',3,12);if(i===1)absent.push(P[2].id);}
+      t.games[gid]={id:gid,title:'vs '+o,opp:o,home:i%2===0,start,allDay:false,loc:i%2?'Away field':'Memorial Park, Field 3',cancelled:false,src:'manual',oppGoals:past?(i+1)%3:0,goals,events,absent,final:past};});
     touch(id);};
   mk('Blue Comets U10','#2F6FDB',[['4','Maya'],['7','Leo'],['9','Ava'],['11','Noah'],['14','Zoe']],['Riverside FC','Hilltop United','Lakeview SC','Northgate Strikers','Eastside Rovers'],-21);
   mk('Thunder U12','#D6453D',[['3','Sam'],['8','Priya'],['10','Jonah'],['21','Ella']],['Westfield Storm','Cedar Valley','Oak Park Rangers','Bayside Blaze'],-12);
@@ -556,6 +618,8 @@ fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.
     ui.modal={title:'Backup restored',msg:`Restored ${n} team${n===1?'':'s'}.`,text:null};
   }catch(e){ui.modal={title:'Could not restore',msg:'That file is not a Touchline Tally backup. Choose a .json file made with "Download backup".',text:null};}
   render();});
+function present(g,pid){if(pid&&g.absent&&g.absent.includes(pid))g.absent=g.absent.filter(x=>x!==pid);}
+document.addEventListener('toggle',e=>{if(e.target.id==='who')ui.whoOpen=e.target.open;},true);
 let armT=null;function arm(k){ui.armed=k;clearTimeout(armT);armT=setTimeout(()=>{ui.armed=null;render();},3500);}
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,v=b.dataset.v;
@@ -566,7 +630,7 @@ document.addEventListener('click',e=>{
   case 'stats-team':ui.statsTeam=v;break;
   case 'when':ui.when=v;break;
   case 'examples':loadExamples();return;
-  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.armed=null;window.scrollTo(0,0);break;
+  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.armed=null;window.scrollTo(0,0);break;
   case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;window.scrollTo(0,0);break;
   case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;break;
   case 'color':t.color=v;touch(t.id);break;
@@ -582,13 +646,21 @@ document.addEventListener('click',e=>{
   case 'roster-go':importRoster(t.id,document.getElementById('rosterBox').value);return;
   case 'paste':ui.paste=ui.paste===v?null:v;break;
   case 'paste-go':{const txt=document.getElementById('pasteBox').value;importICS(t.id,v,txt);return;}
-  case 'goal':{const x={id:rid(),p:v||null,a:null,t:Date.now()};g.goals.push(x);ui.assistFor=(v&&t.players.length>1)?x.id:null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'goal':{const x={id:rid(),p:v||null,a:null,t:Date.now()};g.goals.push(x);present(g,v);ui.moreFor=null;ui.assistFor=(v&&t.players.length>1)?x.id:null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'opp-og':{g.goals.push({id:rid(),p:null,a:null,t:Date.now(),oppOg:true});ui.assistFor=null;ui.moreFor=null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'more':ui.moreFor=ui.moreFor===v?null:v;ui.assistFor=null;break;
+  case 'more-close':ui.moreFor=null;break;
+  case 'ev':{const pid=ui.moreFor;if(!pid)break;present(g,pid);
+    if(v==='pkgoal'){g.goals.push({id:rid(),p:pid,a:null,t:Date.now(),pk:true});ui.flashId='us';}
+    else{evs(g).push({id:rid(),type:v,p:pid,t:Date.now()});if(v==='og')ui.flashId='them';}
+    ui.moreFor=null;touch(t.id);render();ui.flashId=null;return;}
+  case 'absent':{const ab=new Set(g.absent||[]);ab.has(v)?ab.delete(v):ab.add(v);g.absent=[...ab];touch(t.id);break;}
   case 'assist':{const x=g.goals.find(x=>x.id===ui.assistFor);if(x)x.a=v||null;ui.assistFor=null;touch(t.id);break;}
-  case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
+  case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(g.events)g.events=g.events.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
   case 'opp':g.oppGoals=Math.max(0,(g.oppGoals||0)+(+v));ui.flashId=+v>0?'them':null;touch(t.id);render();ui.flashId=null;return;
   case 'final':g.final=!g.final;touch(t.id);break;
   case 'csv':{const k=v,rows=buildCsv(k);const scope=ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').toLowerCase());
-    offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='goals'?'Goal log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
+    offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
   case 'backup':offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:S.teams},null,1),'Backup');return;
   case 'restore':fileJson.click();return;
   case 'close-modal':ui.modal=null;break;
