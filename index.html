@@ -241,14 +241,31 @@ function parseICS(text){
   }).filter(Boolean);
 }
 function hash(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return 'c'+(h>>>0).toString(36);}
+const NAME_NOISE=new Set(['fc','sc','afc','cf','the','club','soccer','team','youth','academy','boys','girls','united','utd','city','select','premier','elite','red','blue','white','black','gold','green','orange','purple','silver','navy','fall','spring','summer','winter','autumn','example','game','match']);
+function nameWords(n){
+  return String(n||'').toLowerCase().replace(/\((?:example|(?:spring|summer|fall|autumn|winter)\s*\d{4})\)/g,' ')
+    .split(/[^a-z0-9]+/).filter(w=>w.length>=3&&!NAME_NOISE.has(w)&&!/^u\d+$/.test(w)&&!/^\d+[a-z]*$/.test(w)&&!/^\d/.test(w));
+}
+function looksLikeUs(side,team){ // how many of our team's meaningful words appear in this side's name
+  const mine=new Set(nameWords(team.name));let hit=0;for(const w of new Set(nameWords(side)))if(mine.has(w))hit++;return hit;
+}
 function guessOpp(title,team){
-  let s=title.replace(/^(game|match|league game|scrimmage)\s*[:\-–]\s*/i,'').trim();
-  const tn=team.name.toLowerCase().replace(/\(example\)/,'').trim();
-  let m=s.match(/^(.*?)\s+(?:vs\.?|v\.?|versus)\s+(.+)$/i);
-  if(m){const a=m[1].trim(),b=m[2].trim();if(tn&&b.toLowerCase().includes(tn))return{opp:a,home:false};return{opp:b,home:true};}
-  m=s.match(/^(.*?)\s*(?:@|\bat\b)\s+(.+)$/i);
-  if(m){const b=m[2].trim();return{opp:b,home:false};}
-  return{opp:s,home:null};
+  let s=title.trim()
+    .replace(/^[^:]*?\b(?:game|match|scrimmage|friendly|tournament|league|soccer|fixture)\b[^:]*:\s*/i,'') // "U10 Soccer Game: …", "Game: …"
+    .replace(/^(?:game|match|scrimmage)\s*[-–]\s*/i,'').trim();
+  let home=null;
+  const tag=s.match(/\s*[\[(](home|away)[\])]\s*$/i);if(tag){home=tag[1].toLowerCase()==='home';s=s.slice(0,tag.index).trim();}
+  let m=s.match(/^(.*?)(?:^|\s)(?:vs\.?|v\.?|versus)\s+(.+)$/i);
+  if(m){const a=m[1].trim(),b=m[2].trim();
+    if(!a)return{opp:b,home:home??true};
+    const ua=looksLikeUs(a,team),ub=looksLikeUs(b,team);
+    if(ub>ua)return{opp:a,home:home??false};
+    return{opp:b,home:home??true};}
+  m=s.match(/^(.*?)(?:^|\s)(?:@|at)\s+(.+)$/i);
+  if(m){const a=m[1].trim(),b=m[2].trim();
+    if(a&&looksLikeUs(b,team)>looksLikeUs(a,team))return{opp:a,home:home??true};
+    return{opp:b,home:home??false};}
+  return{opp:s,home};
 }
 function splitKw(s){return String(s||'').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);}
 function importICS(teamId,feedId,text,quiet){
