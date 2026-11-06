@@ -293,7 +293,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.04-7';
+const APP_VERSION='2026.11.06-1';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -467,7 +467,11 @@ function viewTeam(){
   <div class="swatches" role="group" aria-label="Team color">${COLORS.map(c=>`<button data-act="color" data-v="${c}" style="background:${c}" aria-pressed="${t.color===c}" aria-label="Color ${c}"></button>`).join('')}</div></div>
 
   <div class="section"><h2>Players</h2>
-  ${t.players.length?`<div class="list">${t.players.map(p=>`<div class="logrow"><span class="t" style="width:auto"><b>${esc(p.num||'–')}</b></span><span class="w">${esc(p.name)}</span><button class="btn sm ghost ${ui.armed==='p'+p.id?'armed':'danger'}" data-act="del-player" data-v="${p.id}">${ui.armed==='p'+p.id?'Tap to remove':'Remove'}</button></div>`).join('')}</div>`:`<p class="help">No players yet. Add the kids you want to track; you can leave out the rest of the roster.</p>`}
+  ${t.players.length?`<div class="list">${t.players.map(p=>ui.editPlayer===p.id?`<form class="logrow" data-form="edit-player" data-v="${p.id}" style="flex-wrap:wrap">
+    <label class="field" style="flex:0 0 76px"><span class="label">No.</span><input type="text" inputmode="numeric" id="epNum" name="num" maxlength="3" value="${esc(p.num||'')}"></label>
+    <label class="field"><span class="label">Name</span><input type="text" id="epName" name="name" required value="${esc(p.name)}"></label>
+    <div class="row" style="align-self:end"><button class="btn sm primary">Save</button><button type="button" class="btn sm ghost" data-act="edit-player-cancel">Cancel</button></div></form>`
+  :`<div class="logrow"><span class="t" style="width:auto"><b>${esc(p.num||'–')}</b></span><span class="w">${esc(p.name)}</span><button class="btn sm ghost" data-act="edit-player" data-v="${p.id}">Edit</button><button class="btn sm ghost ${ui.armed==='p'+p.id?'armed':'danger'}" data-act="del-player" data-v="${p.id}">${ui.armed==='p'+p.id?'Tap to remove':'Remove'}</button></div>`).join('')}</div>`:`<p class="help">No players yet. Add the kids you want to track; you can leave out the rest of the roster.</p>`}
   <form class="row" data-form="add-player" style="align-items:end"><label class="field" style="flex:0 0 76px"><span class="label">No.</span><input type="text" inputmode="numeric" id="pNum" name="num" maxlength="3"></label>
   <label class="field"><span class="label">Player name</span><input type="text" id="pName" name="name" required></label><button class="btn primary">Add</button></form>
   ${ui.rosterNotice&&ui.rosterNotice.teamId===t.id?`<div class="notice ${ui.rosterNotice.err?'err':''}" role="status">${esc(ui.rosterNotice.text)}</div>`:''}
@@ -900,9 +904,11 @@ document.addEventListener('click',e=>{
   case 'when':ui.when=v;break;
   case 'examples':loadExamples();return;
   case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.afterFinal=null;ui.armed=null;window.scrollTo(0,0);break;
-  case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;ui.newSeason=false;window.scrollTo(0,0);break;
+  case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;ui.newSeason=false;ui.editPlayer=null;window.scrollTo(0,0);break;
   case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;ui.afterFinal=null;break;
   case 'color':t.color=v;touch(t.id);break;
+  case 'edit-player':ui.editPlayer=v;ui.armed=null;render();{const el=document.getElementById('epName');if(el){el.focus();el.select();}}return;
+  case 'edit-player-cancel':ui.editPlayer=null;break;
   case 'del-player':if(ui.armed==='p'+v){t.players=t.players.filter(p=>p.id!==v);ui.armed=null;touch(t.id);}else arm('p'+v);break;
   case 'del-feed':if(ui.armed==='f'+v){t.feeds=t.feeds.filter(f=>f.id!==v);ui.armed=null;touch(t.id);}else arm('f'+v);break;
   case 'del-team':if(ui.armed==='team'){dropTeam(t.id);ui.armed=null;ui.view='teams';ui.filter='all';ui.statsTeam='all';}else arm('team');break;
@@ -956,6 +962,8 @@ document.addEventListener('submit',e=>{
     ui.newSeason=false;ui.teamId=id;ui.view='team';ui.notice={teamId:id,text:`New season created with ${nt.players.length} players.`+(d.archive?` ${t.name} is archived.`:'')};
     if(nt.feeds.some(f=>f.url))setTimeout(refreshFeeds,0);window.scrollTo(0,0);break;}
   case 'add-team':{const n=(d.name||'').trim();if(!n)return;const id=newTeam(n);ui.teamId=id;ui.view='team';break;}
+  case 'edit-player':{const pl=player(t,f.dataset.v);const n=(d.name||'').trim();if(!pl||!n)return;
+    pl.name=n;pl.num=(d.num||'').trim();ui.editPlayer=null;ui.rosterNotice={teamId:t.id,text:`Saved ${n}${pl.num?' #'+pl.num:''}. Past games and stats now show the new name and number.`};touch(t.id);break;}
   case 'add-player':{const n=(d.name||'').trim();if(!n)return;newPlayer(t,n,(d.num||'').trim());touch(t.id);render();document.getElementById('pName').focus();return;}
   case 'add-feed':{t.feeds=t.feeds||[];t.feeds.push({id:'f_'+rid(),label:d.label.trim(),url:(d.url||'').trim(),last:null});touch(t.id);if(d.url)setTimeout(refreshFeeds,0);break;}
   case 'add-game':{const [y,m,dd]=d.date.split('-').map(Number);const [hh,mi]=(d.time||'09:00').split(':').map(Number);const id='g_'+rid();

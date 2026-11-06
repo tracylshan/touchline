@@ -21,7 +21,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 ## Getting started
 
 1. **Teams tab:** add a team, then open it.
-2. **Players:** add players one by one, or use **Import roster CSV** or **Paste roster**. The file needs a `Name` column (or `First` and `Last`) and, if you like, a `Number` or `Jersey` column.
+2. **Players:** add players one by one, or use **Import roster CSV** or **Paste roster**. Tap **Edit** next to a player to change their name or number; past games and stats update to match. The file needs a `Name` column (or `First` and `Last`) and, if you like, a `Number` or `Jersey` column.
 3. **Game calendars:** add the team's calendar link (`webcal://`, `http://` or `https://` links ending in `.ics`). The app loads it right away and again every time it opens. Use **Skip events containing** to filter out practices and other non-game events.
 4. **Games tab:** open a game and tap a player each time they score. Tap a second name to record the assist, or tap **No assist**. Tap **•••** on a player for other events. Use **+ Opp. own goal** when the other team scores on themselves, and **Who's playing** to untick absent players.
 5. **Share:** in a game, tap **Share result**, then **Share image** to send it or save it to Photos, or **Copy as text**.
