@@ -10,6 +10,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 - **Share results.** After a game, tap **Share result** for an image with the date, score, every goal with its scorer and assist, and saves, ready to text or post. There's also a plain-text version for group chats.
 - **Season stats.** Win-loss-draw records, and per player: games played, goals, assists, shots, shots on goal, penalties, saves, cards and own goals. Export everything as CSV.
 - **Seasons and career stats.** Start a new season from a team's page to carry the roster forward and archive the old season. The Career view adds up each player's stats across every season, and you can export it as CSV.
+- **Sync between devices (optional).** Keep one shared copy in your own Cloudflare storage so your phone, tablet and computer stay in step. Works offline and catches up later.
 - **Private.** Everything stays on your phone. No account, no ads, no sign-up.
 
 ## Install on your phone
@@ -39,6 +40,28 @@ Everything is stored in your browser on this device. Nothing is sent anywhere ex
 
 - Data in the home-screen app is separate from data in a browser tab. Clearing your browser's website data deletes it.
 - Use **Stats → Download backup** now and then. On a new phone or browser, tap **Restore from a backup** on the welcome screen (or **Stats → Restore backup**). The backup includes your feed relay address.
+
+## Sync between devices
+
+The included Cloudflare worker (`relay/worker.js`) can also store one shared copy of your data. Every device with the same passphrase stays in sync. Each device keeps its own copy too, so the app works offline.
+
+**Set up storage (once):**
+
+1. In the Cloudflare dashboard, open **Storage & Databases → KV** (or **Workers KV**) and create a namespace named `touchline-data`.
+2. Open your `touchline-relay` worker → **Settings → Bindings → Add → KV namespace**. Set the variable name to `TOUCHLINE_KV` and choose `touchline-data`. Save or deploy.
+3. In the worker's **Settings → Variables and Secrets**, add a variable of type **Secret** named `SYNC_KEY`. Its value is your passphrase: at least 12 characters, for example four random words. Save or deploy.
+4. Open **Edit code**, replace everything with the latest `relay/worker.js`, and click **Deploy**.
+
+**Turn it on (each device):** on the **Teams** tab, scroll to **Sync between devices**, enter the passphrase and tap **Turn on sync**. On a new device you can tap **Turn on sync** on the welcome screen instead.
+
+**How it works:**
+
+- Changes upload a few seconds after you make them. The app downloads the latest when it opens and when you switch back to it.
+- Changes are merged game by game, so goals logged on two devices are both kept. Team settings (name, roster, calendars) use the most recent edit.
+- Deleted teams and games stay deleted on every device.
+- The worker also keeps a snapshot of each day's data for 30 days (`snapshot-YYYY-MM-DD` in the KV namespace) in case you need to go back.
+- The free Cloudflare plan allows 1,000 saves a day; a busy game day uses a few dozen.
+- The passphrase is stored on each device. To stop syncing on a device, tap **Turn off sync on this device**.
 
 ## If a calendar won't update
 

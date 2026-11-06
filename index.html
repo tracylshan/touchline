@@ -50,6 +50,8 @@ h1,h2,h3{font-family:var(--f-display);font-weight:700;letter-spacing:.01em;text-
 .sync{margin-left:auto;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
 .sync i{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .sync i{background:var(--turf)}
+button.sync{border:0;background:none;padding:0;font:inherit;font-size:12px;cursor:pointer}
+.sync.err{color:var(--danger)} .sync.err i{background:var(--danger)}
 .label{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
 .section{display:grid;gap:10px;padding-block:14px}
 .section h2{font-size:22px;text-transform:uppercase}
@@ -191,15 +193,17 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 /* ---------- persistence ---------- */
 function loadLocal(){try{const s=JSON.parse(localStorage.getItem(LS));if(s&&s.teams)S=s;}catch(e){}if(!S.firstUse){S.firstUse=Date.now();saveLocal();}}
 function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(S));}catch(e){}}
-function touch(id){const t=S.teams[id];if(t)t.updated=Date.now();S.lastChange=Date.now();saveLocal();}
+function touch(id){const t=S.teams[id];const now=Date.now();
+  if(t){t.updated=now;const g=ui.view==='game'&&ui.teamId===id&&t.games[ui.gameId];if(g)g.updated=now;else t.meta=now;}
+  S.lastChange=now;saveLocal();queueSync();}
 function backupState(){
   const now=Date.now(),last=S.lastBackup||0,changed=(S.lastChange||0)>last;
-  const since=last||S.firstUse||now;const overdue=changed&&now-since>7*864e5;
+  const since=last||S.firstUse||now;const synced=S.sync&&S.sync.on&&S.sync.ok&&now-S.sync.ok<7*864e5;const overdue=!synced&&changed&&now-since>7*864e5;
   const days=last?Math.floor((new Date(now).setHours(0,0,0,0)-new Date(last).setHours(0,0,0,0))/864e5):null;
   const ago=days===null?'never':days===0?'today':days===1?'yesterday':days+' days ago';
   return{last,changed,overdue,ago};
 }
-function dropTeam(id){delete S.teams[id];saveLocal();}
+function dropTeam(id){delete S.teams[id];(S.deleted=S.deleted||{})[id]=Date.now();S.lastChange=Date.now();saveLocal();queueSync();}
 
 /* ---------- dates ---------- */
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -293,7 +297,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.06-1';
+const APP_VERSION='2026.11.06-2';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -320,11 +324,112 @@ async function refreshFeeds(){
       f.auto={ok:f.auto&&f.auto.ok||null,err:e.name==='AbortError'?'The feed took too long to answer.':blocked?(relayUrl()?'Could not reach the feed relay. Check the relay address on the Teams tab, or check that you are online.':'This browser could not read the feed. The calendar server does not allow web apps to load it directly, or you are offline. Use "Import .ics file", or set a feed relay on the Teams tab.'):e.message};bad++;
     }finally{clearTimeout(timer);}
   }));
-  saveLocal();
+  saveLocal();queueSync();
   refreshing=false;ui.refresh={state:'done',at:Date.now(),ok,bad};lastRefresh=Date.now();render();
 }
 let lastRefresh=0;
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastRefresh>10*60e3)refreshFeeds();});
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState!=='visible')return;if(syncOn())await syncNow();if(Date.now()-lastRefresh>10*60e3)refreshFeeds();});
+
+/* ---------- sync (Cloudflare worker + KV) ---------- */
+function canon(o){if(Array.isArray(o))return '['+o.map(canon).join(',')+']';if(o&&typeof o==='object')return '{'+Object.keys(o).sort().filter(k=>o[k]!==undefined).map(k=>JSON.stringify(k)+':'+canon(o[k])).join(',')+'}';return JSON.stringify(o===undefined?null:o);}
+const tMeta=t=>t.meta||t.updated||t.created||0;
+const gStamp=g=>g.updated||0;
+function teamNewest(t){let m=tMeta(t);for(const g of Object.values(t.games||{}))m=Math.max(m,gStamp(g));return m;}
+function mergeTeam(L,R){
+  const base=tMeta(L)>=tMeta(R)?L:R,other=base===L?R:L;
+  const out=clone(base);
+  const del={...(other.delGames||{}),...(base.delGames||{})};
+  for(const [k,v] of Object.entries(other.delGames||{}))del[k]=Math.max(v,del[k]||0);
+  const games={};
+  for(const id of new Set([...Object.keys(L.games||{}),...Object.keys(R.games||{})])){
+    const a=(base.games||{})[id],b=(other.games||{})[id];
+    const pick=!a?b:!b?a:(gStamp(b)>gStamp(a)?b:a);
+    if(del[id]&&del[id]>=gStamp(pick))continue;
+    games[id]=clone(pick);}
+  out.games=games;out.delGames=del;out.updated=Math.max(L.updated||0,R.updated||0);
+  return out;
+}
+function mergeData(local,remote){
+  const teams={},deleted={...(remote.deleted||{})};
+  for(const [k,v] of Object.entries(local.deleted||{}))deleted[k]=Math.max(v,deleted[k]||0);
+  const ids=new Set([...Object.keys(local.teams||{}),...Object.keys(remote.teams||{})]);
+  for(const id of ids){
+    const L=(local.teams||{})[id],R=(remote.teams||{})[id];
+    const t=L&&R?mergeTeam(L,R):clone(L||R);
+    if(deleted[id]&&deleted[id]>=teamNewest(t))continue;
+    if(deleted[id])delete deleted[id]; // edited after the delete elsewhere: keep it
+    teams[id]=t;}
+  const cutoff=Date.now()-365*864e5;for(const k in deleted)if(deleted[k]<cutoff)delete deleted[k];
+  return{teams,deleted};
+}
+const syncOn=()=>!!(S.sync&&S.sync.on&&S.sync.url&&S.sync.key);
+function defaultSyncUrl(){try{const r=relayUrl();if(r)return new URL(r).origin+'/data';}catch(e){}return '';}
+let syncing=false,syncAgain=false,syncT=null;
+function queueSync(){if(!syncOn())return;clearTimeout(syncT);syncT=setTimeout(()=>syncNow(),4000);}
+async function syncCall(method,body){
+  const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),20000);
+  try{
+    const r=await fetch(S.sync.url,{method,cache:'no-store',signal:ctl.signal,headers:{'Authorization':'Bearer '+S.sync.key,...(body?{'Content-Type':'application/json'}:{})},body});
+    let o=null;try{o=await r.json();}catch(e){}
+    if(!r.ok){const err=new Error((o&&o.message)||('Sync storage answered with error '+r.status+'.'));err.code=(o&&o.error)||r.status;throw err;}
+    return o;
+  }catch(e){if(e.name==='AbortError')throw new Error('Sync storage took too long to answer.');if(e instanceof TypeError)throw new Error('Could not reach sync storage. Check that you are online and the sync address is right.');throw e;}
+  finally{clearTimeout(timer);}
+}
+async function syncNow(manual){
+  if(!syncOn()||!canRefresh)return false;
+  if(syncing){syncAgain=true;return false;}
+  syncing=true;clearTimeout(syncT);setSyncPill();
+  try{
+    const remote=await syncCall('GET');
+    const rd=remote&&remote.teams?{teams:remote.teams,deleted:remote.deleted||{}}:{teams:{},deleted:{}};
+    const before=canon({teams:S.teams,deleted:S.deleted||{}});
+    const merged=mergeData({teams:S.teams,deleted:S.deleted||{}},rd);
+    const after=canon(merged);
+    if(after!==before){S.teams=merged.teams;S.deleted=merged.deleted;}
+    if(after!==canon(rd))await syncCall('PUT',JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),teams:merged.teams,deleted:merged.deleted}));
+    S.sync.ok=Date.now();S.sync.err=null;saveLocal();
+    if(after!==before)safeRender();else setSyncPill();
+    if(manual&&ui.view==='teams')render();
+    return true;
+  }catch(e){
+    S.sync.err=e.message;S.sync.errCode=e.code||null;saveLocal();setSyncPill();if(manual||ui.view==='teams')safeRender();return false;
+  }finally{
+    syncing=false;if(ui.view==='teams')safeRender();else setSyncPill();
+    if(syncAgain){syncAgain=false;queueSync();}
+  }
+}
+function syncPillHtml(){
+  if(!syncOn())return `<div class="sync" id="syncpill"><i></i><span>Saved on this device</span></div>`;
+  if(syncing)return `<div class="sync" id="syncpill"><i style="background:var(--flag)"></i><span>Syncing…</span></div>`;
+  if(S.sync.err)return `<button class="sync err" id="syncpill" data-act="goto-sync"><i></i><span>Sync problem</span></button>`;
+  return `<div class="sync" id="syncpill"><i></i><span>${S.sync.ok?'Synced '+fmtTime(S.sync.ok):'Sync on'}</span></div>`;
+}
+function setSyncPill(){const el=document.getElementById('syncpill');if(el)el.outerHTML=syncPillHtml();}
+let needRender=false;
+function safeRender(){const a=document.activeElement;if(a&&$app.contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)){needRender=true;return;}render();}
+$app.addEventListener('focusout',()=>setTimeout(()=>{if(needRender){needRender=false;safeRender();}},0));
+function syncSection(){
+  if(!canRefresh)return '';
+  const on=syncOn();
+  let html=`<div class="section" id="syncSection"><h3 style="font-size:18px;text-transform:uppercase">Sync between devices</h3>`;
+  if(on){
+    html+=S.sync.err?`<div class="notice err" role="status"><b>Sync problem:</b> ${esc(S.sync.err)} Your changes are saved on this device and will sync once this is fixed.</div>`
+      :`<div class="notice" role="status">${syncing?'Syncing…':S.sync.ok?`Last synced ${fmtDay(S.sync.ok)}, ${fmtTime(S.sync.ok)}.`:'Sync is on.'} Changes sync a few seconds after you make them and whenever the app opens.</div>`;
+    html+=`<p class="help">Sync address: ${esc(S.sync.url)}</p>
+    ${S.sync.errCode==='bad_key'?`<form class="row" data-form="sync-key" style="align-items:end"><label class="field"><span class="label">Sync passphrase</span><input type="password" id="syncKey2" name="key" autocomplete="current-password" required></label><button class="btn primary">Save passphrase</button></form>`:''}
+    <div class="row"><button class="btn primary" data-act="sync-now">Sync now</button><button class="btn ${ui.armed==='sync-off'?'armed':'danger'}" data-act="sync-off">${ui.armed==='sync-off'?'Tap again to turn off sync':'Turn off sync on this device'}</button></div>`;
+  }else{
+    html+=`<p class="help">Keep one shared copy of your teams in your Cloudflare worker's storage, so your phone, tablet and computer all show the same games and stats. Everything still works offline and catches up when you're back online. Use the same passphrase on every device.</p>
+    ${ui.syncMsg?`<div class="notice err" role="status">${esc(ui.syncMsg)}</div>`:''}
+    <form class="grid-form" data-form="sync-on" style="display:grid;gap:10px">
+    <label class="field"><span class="label">Sync passphrase</span><input type="password" id="syncKey" name="key" autocomplete="current-password" minlength="12" required placeholder="The SYNC_KEY you set on the worker"></label>
+    <label class="field"><span class="label">Sync address</span><input type="url" id="syncUrl" name="url" required value="${esc((S.sync&&S.sync.url)||defaultSyncUrl())}" placeholder="https://your-worker.workers.dev/data"></label>
+    <div class="row"><button class="btn primary" ${ui.syncBusy?'disabled':''}>${ui.syncBusy?'Connecting…':'Turn on sync'}</button></div></form>
+    <p class="help">If this device already has teams, they're combined with what's in sync storage. Nothing is deleted.</p>`;
+  }
+  return html+`</div>`;
+}
 
 /* ---------- roster CSV ---------- */
 function parseCSV(text){
@@ -395,7 +500,7 @@ function render(){
   document.querySelectorAll('.tabs button').forEach(b=>{b.setAttribute('aria-current',b.dataset.tab===ui.tab?'page':'false');b.classList.toggle('due',due&&b.dataset.tab==='stats');});
   const v=ui.view;
   let body=v==='game'?viewGame():v==='team'?viewTeam():v==='teams'?viewTeams():v==='stats'?viewStats():viewGames();
-  $app.innerHTML=`<header class="top"><div class="brand">Touchline <b>Tally</b></div><div class="sync"><i></i><span>Saved on this device</span></div></header>`+body+(ui.modal?viewModal():'');
+  $app.innerHTML=`<header class="top"><div class="brand">Touchline <b>Tally</b></div>${syncPillHtml()}</header>`+body+(ui.modal?viewModal():'');
 }
 function teamChips(sel,act,list){
   return `<div class="chips" role="group" aria-label="Filter by team"><button class="chip" data-act="${act}" data-v="all" aria-pressed="${sel==='all'}">All teams</button>`+
@@ -406,7 +511,7 @@ function emptyStart(){
   <p>Add a team, list its players, then import each team's game calendar. On game day, tap a player's name each time they score.</p>
   <div class="row"><button class="btn primary" data-act="tab" data-tab="teams">Add your first team</button><button class="btn" data-act="examples">Try it with example teams</button></div>
   <p style="border-top:1px solid var(--line);padding-top:10px;width:100%">Using a new phone or browser? Restore the backup file you saved, for example from iCloud Drive.</p>
-  <button class="btn" data-act="restore">Restore from a backup</button></div>`;
+  <div class="row"><button class="btn" data-act="restore">Restore from a backup</button>${canRefresh?'<button class="btn" data-act="goto-sync">Turn on sync</button>':''}</div></div>`;
 }
 function gameRow(t,g){
   const d=new Date(g.start),r=result(g);
@@ -455,6 +560,7 @@ function viewTeams(){
   ${canRefresh?"":"<!--"}<div class="section"><h3 style="font-size:18px;text-transform:uppercase">Calendar updates</h3>
   <p class="help">Calendars that have a feed link update each time you open the app. Feeds load through your Touchline relay, which works with TeamSnap and other calendar sites. Clear this box to load feeds directly instead.</p>
   <label class="field"><span class="label">Feed relay (optional)</span><input type="url" id="relay" data-field="relay" value="${esc(relayUrl())}" placeholder="Blank: load feeds directly"></label></div>${canRefresh?"":"-->"}
+  ${syncSection()}
   <p class="help" style="text-align:center;padding-bottom:8px">Touchline Tally · version ${APP_VERSION}</p>`;
   return html;
 }
@@ -869,7 +975,7 @@ fileIcs.addEventListener('change',async()=>{const fs=[...fileIcs.files];fileIcs.
 fileJson.addEventListener('change',async()=>{const f=fileJson.files[0];fileJson.value='';if(!f)return;
   try{const o=JSON.parse(await readFile(f));const ts=o&&o.teams;if(!ts||typeof ts!=='object')throw 0;let n=0;
     const wasEmpty=!Object.keys(S.teams).length;
-    for(const [id,t] of Object.entries(ts)){if(t&&t.id===id&&Array.isArray(t.players)&&t.games){S.teams[id]=t;touch(id);n++;}}
+    for(const [id,t] of Object.entries(ts)){if(t&&t.id===id&&Array.isArray(t.players)&&t.games){S.teams[id]=t;t.meta=Date.now();if(S.deleted)delete S.deleted[id];touch(id);n++;}}
     if(!n)throw 0;
     if(o.relay&&S.relay===undefined&&o.relay!==DEFAULT_RELAY)S.relay=o.relay;
     if(wasEmpty){S.lastBackup=S.lastChange=Date.now();}  // this device now matches the backup
@@ -912,10 +1018,13 @@ document.addEventListener('click',e=>{
   case 'del-player':if(ui.armed==='p'+v){t.players=t.players.filter(p=>p.id!==v);ui.armed=null;touch(t.id);}else arm('p'+v);break;
   case 'del-feed':if(ui.armed==='f'+v){t.feeds=t.feeds.filter(f=>f.id!==v);ui.armed=null;touch(t.id);}else arm('f'+v);break;
   case 'del-team':if(ui.armed==='team'){dropTeam(t.id);ui.armed=null;ui.view='teams';ui.filter='all';ui.statsTeam='all';}else arm('team');break;
-  case 'del-game':if(ui.armed==='game'){delete t.games[g.id];ui.armed=null;touch(t.id);ui.view=ui.tab==='teams'?'team':'games';}else arm('game');break;
+  case 'del-game':if(ui.armed==='game'){delete t.games[g.id];(t.delGames=t.delGames||{})[g.id]=Date.now();t.meta=Date.now();ui.armed=null;touch(t.id);ui.view=ui.tab==='teams'?'team':'games';}else arm('game');break;
   case 'import-sample':importICS(t.id,v,sampleICS(t));return;
   case 'import-file':pendingImport={team:t.id,feed:v};fileIcs.click();return;
   case 'refresh':refreshFeeds();return;
+  case 'sync-now':syncNow(true);render();return;
+  case 'sync-off':if(ui.armed==='sync-off'){S.sync.on=false;S.sync.key='';S.sync.err=null;ui.armed=null;saveLocal();}else arm('sync-off');break;
+  case 'goto-sync':ui.tab='teams';ui.view='teams';render();{const el=document.getElementById('syncSection');if(el)el.scrollIntoView({behavior:'smooth'});}return;
   case 'roster-file':fileCsv.click();return;
   case 'roster-paste':ui.pasteRoster=!ui.pasteRoster;break;
   case 'roster-go':importRoster(t.id,document.getElementById('rosterBox').value);return;
@@ -961,6 +1070,15 @@ document.addEventListener('submit',e=>{
     if(d.archive){t.archived=true;touch(t.id);if(ui.filter===t.id)ui.filter='all';}
     ui.newSeason=false;ui.teamId=id;ui.view='team';ui.notice={teamId:id,text:`New season created with ${nt.players.length} players.`+(d.archive?` ${t.name} is archived.`:'')};
     if(nt.feeds.some(f=>f.url))setTimeout(refreshFeeds,0);window.scrollTo(0,0);break;}
+  case 'sync-on':{
+    const url=(d.url||'').trim(),key=(d.key||'').trim();if(!url||!key)return;
+    S.sync={on:true,url,key,ok:null,err:null};ui.syncBusy=true;ui.syncMsg=null;render();
+    syncNow(true).then(ok=>{ui.syncBusy=false;
+      if(!ok){const msg=S.sync.err;S.sync={on:false,url,key:'',ok:null,err:null};ui.syncMsg=msg;saveLocal();}
+      else{ui.syncMsg=null;setTimeout(refreshFeeds,0);}
+      render();});
+    return;}
+  case 'sync-key':{const key=(d.key||'').trim();if(!key)return;S.sync.key=key;S.sync.err=null;S.sync.errCode=null;saveLocal();syncNow(true);break;}
   case 'add-team':{const n=(d.name||'').trim();if(!n)return;const id=newTeam(n);ui.teamId=id;ui.view='team';break;}
   case 'edit-player':{const pl=player(t,f.dataset.v);const n=(d.name||'').trim();if(!pl||!n)return;
     pl.name=n;pl.num=(d.num||'').trim();ui.editPlayer=null;ui.rosterNotice={teamId:t.id,text:`Saved ${n}${pl.num?' #'+pl.num:''}. Past games and stats now show the new name and number.`};touch(t.id);break;}
@@ -982,8 +1100,8 @@ document.addEventListener('change',e=>{
   touch(t.id);
 });
 
-loadLocal();render();setTimeout(refreshFeeds,300);
-window.__tt={parseICS,guessOpp,toCsv,parseCSV,rosterFromRows};
+loadLocal();render();setTimeout(async()=>{if(syncOn())await syncNow();refreshFeeds();},300);
+window.__tt={mergeData,parseICS,guessOpp,toCsv,parseCSV,rosterFromRows};
 })();
 </script>
 
