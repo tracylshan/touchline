@@ -231,7 +231,7 @@ function renderTeam(t, now) {
 
   const html = `<main class="wrap">
     <header class="hero" style="--team:${safeColor(t.color)}"><div class="eyebrow">Team page</div><h1>${esc(t.name.replace(/\s*\(example\)$/, ""))}</h1>
-    <div class="record"><span class="big">${w}-${l}-${dr}</span><span class="muted">W-L-D · ${gf} for, ${ga} against</span></div></header>
+    <div class="record"><span class="big">${w}-${l}-${dr}</span><span class="muted">W-L-D · ${gf} for, ${ga} against</span></div>${/^https?:\/\/\S+$/i.test(String(t.standings || "").trim()) ? `<a class="standings" href="${esc(String(t.standings).trim())}" target="_blank" rel="noopener noreferrer">Official league standings ↗</a>` : ""}</header>
     <section><h2>Results</h2>${results || `<p class="muted">No games played yet.</p>`}</section>
     <section><h2>Upcoming</h2>${sched ? `<ul class="sched">${sched}</ul>` : `<p class="muted">No upcoming games.</p>`}</section>
     <section><h2>Season stats</h2>${table}<p class="muted small">GP games played · G goals · A assists · Sh shots · SOG shots on goal (goals count as both)</p></section>
@@ -269,6 +269,7 @@ h1,h2{font-family:var(--d);text-transform:uppercase;margin:0;letter-spacing:.01e
 .sched{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px}
 .sched li{display:grid;grid-template-columns:96px 1fr;gap:2px 10px;padding:10px 14px;border-top:1px solid var(--line)}.sched li:first-child{border-top:0}
 .u-date{font-weight:600;grid-row:span 3}
+.standings{color:var(--turf);font-weight:700;text-decoration:none;justify-self:start}.standings:hover{text-decoration:underline}
 .cap{display:inline-flex;align-items:center;gap:5px;font-weight:600}.cb{width:16px;height:16px;border-radius:50%;background:var(--flag);color:#14211A;font-size:10px;font-weight:800;display:inline-grid;place-items:center}.u-opp{font-weight:600}
 .tbl{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}

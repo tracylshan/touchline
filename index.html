@@ -158,6 +158,8 @@ abbr{text-decoration:none}
 .capbadge.static{position:static;display:inline-grid}
 .capline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .capline .row{margin-top:6px}
+.standings{color:var(--turf);font-weight:600;text-decoration:none}
+.standings:hover{text-decoration:underline}
 .per-line{font-variant-numeric:tabular-nums}
 .logrow .w{flex:1;min-width:0}
 .back{display:flex;align-items:center;gap:8px}
@@ -317,7 +319,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.07-4';
+const APP_VERSION='2026.11.07-5';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -553,6 +555,7 @@ function captainLine(t,g){
 }
 /* ---------- game format & clock ---------- */
 function guessFormat(name){const m=String(name||'').match(/\bU-?(\d{1,2})\b/i);return m&&+m[1]<=8?{periods:4,len:12}:{periods:2,len:25};}
+const standingsUrl=t=>{const u=String(t.standings||'').trim();return /^https?:\/\/\S+$/i.test(u)?u:'';};
 const fmtOf=(t,g)=>(g&&g.format)||t.format||guessFormat(t.name);
 const fmtText=f=>`${f.periods} × ${f.len} min ${f.periods===4?'quarters':f.periods===2?'halves':'periods'}`;
 function perLabel(f,p){if(p>f.periods)return 'OT'+(p>f.periods+1?p-f.periods:'');return f.periods===4?'Q'+p:f.periods===2?(p===1?'1H':'2H'):'P'+p;}
@@ -671,6 +674,10 @@ function viewTeam(){
 
   ${captainSection(t)}
   ${canRefresh?shareSection(t):''}
+  <div class="section"><h2>Official standings</h2>
+  <label class="field"><span class="label">Standings or rankings link (optional)</span><input type="url" id="tStand" data-field="team-standings" value="${esc(t.standings||'')}" placeholder="https://… league standings page"></label>
+  ${standingsUrl(t)?`<div class="row"><a class="btn sm" href="${esc(standingsUrl(t))}" target="_blank" rel="noopener">Open standings ↗</a></div>`:''}
+  <p class="help">Paste the league's standings page for this team's division. A link to it shows on the Stats tab and the parents' page.</p></div>
   <div class="section"><h2>Game format</h2>
   ${(()=>{const f=fmtOf(t);const is=(p,l)=>f.periods===p&&f.len===l;return `<div class="chips" style="flex-wrap:wrap"><button class="chip" data-act="fmt-preset" data-v="4x12" aria-pressed="${is(4,12)}">4 × 12 min quarters</button><button class="chip" data-act="fmt-preset" data-v="2x25" aria-pressed="${is(2,25)}">2 × 25 min halves</button><button class="chip" data-act="fmt-preset" data-v="2x30" aria-pressed="${is(2,30)}">2 × 30 min halves</button></div>
   <div class="row" style="align-items:end"><label class="field" style="flex:0 1 150px"><span class="label">Periods</span><select id="tPer" data-field="team-periods"><option value="4" ${f.periods===4?'selected':''}>4 quarters</option><option value="2" ${f.periods===2?'selected':''}>2 halves</option></select></label>
@@ -886,7 +893,7 @@ function viewStats(){
   const teams=statsTeams();
   let html=`<div class="section"><h2>Season stats</h2>${statsHeader()}${teamChips(ui.statsTeam,'stats-team',teamsArr(!!ui.showArchived))}<div class="rec">`;
   for(const t of teams){let w=0,l=0,d=0,gf=0,ga=0;for(const g of Object.values(t.games||{})){if(g.cancelled)continue;const r=result(g);if(!r)continue;gf+=r.us;ga+=r.th;r.r==='W'?w++:r.r==='L'?l++:d++;}
-    html+=`<div><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span><span class="big">${w}-${l}-${d}</span><span class="meta">W-L-D · ${gf} for, ${ga} against</span></div>`;}
+    html+=`<div><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)}</span><span class="big">${w}-${l}-${d}</span><span class="meta">W-L-D · ${gf} for, ${ga} against</span>${standingsUrl(t)?`<a class="meta standings" href="${esc(standingsUrl(t))}" target="_blank" rel="noopener">Official standings ↗</a>`:''}</div>`;}
   html+=`</div>`;
   const rows=statsFor(teams);
   const cell=(r,k)=>k==='pk'?(r.pka?`${r.pk}/${r.pka}`:'0'):k==='y'||k==='r'?(r[k]?`<span class="card ${k}"></span> ${r[k]}`:'0'):(k==='g'?`<b>${r.g}</b>`:r[k]);
@@ -1239,7 +1246,7 @@ document.addEventListener('submit',e=>{
   switch(f.dataset.form){
   case 'new-season':{
     const keep=new Set(new FormData(f).getAll('keep'));const id='t_'+rid();
-    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,format:t.format,share:undefined,lineage:lineageOf(t),prev:t.id,
+    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,format:t.format,standings:t.standings,share:undefined,lineage:lineageOf(t),prev:t.id,
       players:t.players.filter(p=>keep.has(p.id)).map(p=>({id:'p_'+rid(),key:pkey(p),num:p.num,name:p.name})),
       feeds:[],games:{},skip:t.skip,only:t.only,created:Date.now()};
     if((d.feedLabel||'').trim()||(d.feedUrl||'').trim())nt.feeds.push({id:'f_'+rid(),label:(d.feedLabel||'').trim()||'Season calendar',url:(d.feedUrl||'').trim(),last:null});
@@ -1269,6 +1276,7 @@ document.addEventListener('submit',e=>{
 document.addEventListener('change',e=>{
   const el=e.target;const k=el.dataset&&el.dataset.field;if(!k)return;if(k==='relay'){S.relay=el.value.trim();saveLocal();refreshFeeds();return;}const t=S.teams[ui.teamId];if(!t)return;const g=t.games[ui.gameId];
   if(k==='team-name'){const n=el.value.trim();if(n)t.name=n;}
+  else if(k==='team-standings'){const u=el.value.trim();if(u&&!/^https?:\/\//i.test(u)){t.standings='https://'+u.replace(/^\/+/,'');}else t.standings=u;render();}
   else if(k==='team-skip')t.skip=el.value;
   else if(k==='team-periods'){t.format={...fmtOf(t),periods:+el.value};render();}
   else if(k==='team-len'){const n=Math.round(+el.value);if(n>=1&&n<=60){t.format={...fmtOf(t),len:n};}render();}

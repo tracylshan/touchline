@@ -67,6 +67,10 @@ The included Cloudflare worker (`relay/worker.js`) can also store one shared cop
 - The free Cloudflare plan allows 1,000 saves a day; a busy game day uses a few dozen.
 - The passphrase is stored on each device. To stop syncing on a device, tap **Turn off sync on this device**.
 
+## Official standings
+
+On a team's page, paste the league's standings or rankings page under **Official standings**. An **Official standings ↗** link then appears on that team's record in Stats and on the parents' page. A new season keeps the link; update it if the league uses a new page.
+
 ## Captains
 
 Each game has one captain, shown with a **C** on their player button.
