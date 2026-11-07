@@ -138,7 +138,21 @@ abbr{text-decoration:none}
 @keyframes flash{0%{transform:scale(1.15)}100%{transform:scale(1)}}
 @media (prefers-reduced-motion:reduce){.flash{animation:none}.pbtn{transition:none}}
 .logrow{display:flex;gap:10px;align-items:center;padding:10px 14px}
-.logrow .t{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;width:62px;flex:none}
+.logrow .t{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;width:70px;flex:none}
+.clk-strip{grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent);margin-top:6px;padding-top:10px;text-align:left}
+.clk-per{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.75;min-width:44px}
+.clk-time{display:flex;flex-direction:column;justify-content:center;flex:1;min-width:0;line-height:1}
+.clk-digits{font-family:var(--f-display);font-weight:700;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.clk-digits.over,.clk-extra{color:var(--flag)} .clk-digits.paused{opacity:.45}
+.clk-extra{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+.clk-extra:empty{display:none}
+.clk-acts{display:flex;gap:6px;align-items:center}
+.clk-main{border:0;border-radius:9px;background:var(--bg);color:var(--ink);font-weight:700;font-size:14px;padding:8px 14px;white-space:nowrap}
+.clk-icon{border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);background:none;color:var(--bg);border-radius:9px;min-width:36px;height:34px;padding:0 8px;font-weight:700;font-size:12px}
+.clk-opts{flex-basis:100%;display:flex;gap:6px;justify-content:flex-end}
+.clk-opts button{border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);background:none;color:var(--bg);border-radius:9px;padding:6px 10px;font-size:13px;font-weight:600}
+.clk-opts button.armed{background:var(--danger);border-color:var(--danger)}
+.per-line{font-variant-numeric:tabular-nums}
 .logrow .w{flex:1;min-width:0}
 .back{display:flex;align-items:center;gap:8px}
 .back .btn{white-space:nowrap;flex:none}
@@ -297,7 +311,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.06-2';
+const APP_VERSION='2026.11.07-2';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -485,14 +499,38 @@ function seasonName(name){
 }
 function allGames(){const out=[];for(const t of teamsArr())for(const g of Object.values(t.games||{}))out.push({t,g});return out.sort((a,b)=>a.g.start-b.g.start);}
 const isPast=g=>g.final||g.start<Date.now()-2*3600e3;
-const EV={sot:'Shot on goal',shot:'Shot (missed)',save:'Save',pkmiss:'Penalty missed',yellow:'Yellow card',red:'Red card',og:'Own goal'};
+const EV={oppgoal:'Opponent goal',sot:'Shot on goal',shot:'Shot (missed)',save:'Save',pkmiss:'Penalty missed',yellow:'Yellow card',red:'Red card',og:'Own goal'};
 const evs=g=>g.events||(g.events=[]);
 const ownGoals=g=>(g.events||[]).filter(e=>e.type==='og').length;
 function goalLabel(x){return x.oppOg?'Opponent own goal':x.pk?'Penalty goal':'Goal';}
-function result(g){const us=g.goals.length,th=(g.oppGoals||0)+ownGoals(g);if(!isPast(g)&&!us&&!th)return null;return{us,th,r:us>th?'W':us<th?'L':'D'};}
+const oppTimed=g=>(g.events||[]).filter(e=>e.type==='oppgoal').length;
+const theirScore=g=>(g.oppGoals||0)+oppTimed(g)+ownGoals(g);
+/* ---------- game format & clock ---------- */
+function guessFormat(name){const m=String(name||'').match(/\bU-?(\d{1,2})\b/i);return m&&+m[1]<=8?{periods:4,len:12}:{periods:2,len:25};}
+const fmtOf=(t,g)=>(g&&g.format)||t.format||guessFormat(t.name);
+const fmtText=f=>`${f.periods} × ${f.len} min ${f.periods===4?'quarters':f.periods===2?'halves':'periods'}`;
+function perLabel(f,p){if(p>f.periods)return 'OT'+(p>f.periods+1?p-f.periods:'');return f.periods===4?'Q'+p:f.periods===2?(p===1?'1H':'2H'):'P'+p;}
+function perName(f,p){if(p>f.periods)return 'extra time';return f.periods===4?'Q'+p:f.periods===2?(p===1?'1st half':'2nd half'):'period '+p;}
+function clockMs(c,now){now=now||Date.now();if(!c)return 0;if(c.state==='running')return Math.max(0,now-c.start-c.pausedMs);if(c.state==='paused')return Math.max(0,c.pausedAt-c.start-c.pausedMs);const l=(c.done||[])[c.done.length-1];return l?Math.max(0,l.end-l.start-l.pausedMs):0;}
+function stampNow(g){const c=g.clock;if(!c||c.state==='idle')return null;
+  if(c.state==='running'||c.state==='paused')return{p:c.p,s:Math.floor(clockMs(c)/1000)};
+  const l=(c.done||[])[c.done.length-1];return l?{p:l.p,s:Math.floor((l.end-l.start-l.pausedMs)/1000)}:null;}
+function minuteLabel(f,ps){const m=Math.floor(ps.s/60)+1;return perLabel(f,ps.p)+' '+(ps.p<=f.periods&&m>f.len?`${f.len}+${m-f.len}'`:`${m}'`);}
+const stampLabel=(t,g,x)=>x.ps?minuteLabel(fmtOf(t,g),x.ps):fmtTime(x.t);
+const mmss=ms=>{const s=Math.floor(ms/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');};
+function periodScores(t,g){
+  const f=fmtOf(t,g),scoring=g.goals.map(x=>({ps:x.ps,us:1})).concat((g.events||[]).filter(e=>e.type==='oppgoal'||e.type==='og').map(e=>({ps:e.ps,us:0})));
+  const timed=scoring.filter(x=>x.ps);if(!g.clock&&!timed.length)return null;
+  const c=g.clock||{};const P=Math.max(c.p||0,...timed.map(x=>x.ps.p),f.periods);
+  const rows=[];for(let p=1;p<=P;p++){const inP=timed.filter(x=>x.ps.p===p);const played=p<=(c.p||0)||inP.length;
+    if(p>f.periods&&!played)continue;rows.push({label:perLabel(f,p),us:inP.filter(x=>x.us).length,th:inP.filter(x=>!x.us).length,played});}
+  const un=scoring.filter(x=>!x.ps);return{rows,untimed:{us:un.filter(x=>x.us).length,th:un.filter(x=>!x.us).length}};
+}
+const periodLine=(ps,sep)=>ps.rows.map(r=>`${r.label} ${r.played?r.us+'–'+r.th:'–'}`).join(sep||' · ')+(ps.untimed.us+ps.untimed.th?`${sep||' · '}untimed ${ps.untimed.us}–${ps.untimed.th}`:'');
+function result(g){const us=g.goals.length,th=theirScore(g);if(!isPast(g)&&!us&&!th)return null;return{us,th,r:us>th?'W':us<th?'L':'D'};}
 function player(t,id){return(t.players||[]).find(p=>p.id===id);}
 function pname(t,id){if(!id)return 'Unknown';const p=player(t,id);return p?p.name:'Removed player';}
-function newTeam(name){const id='t_'+rid();S.teams[id]={id,name,color:COLORS[teamsArr().length%COLORS.length],players:[],feeds:[],games:{},skip:'practice, training',only:'',created:Date.now()};touch(id);return id;}
+function newTeam(name){const id='t_'+rid();S.teams[id]={id,name,format:guessFormat(name),color:COLORS[teamsArr().length%COLORS.length],players:[],feeds:[],games:{},skip:'practice, training',only:'',created:Date.now()};touch(id);return id;}
 
 /* ---------- render ---------- */
 function render(){
@@ -585,6 +623,12 @@ function viewTeam(){
   ${ui.pasteRoster?`<textarea id="rosterBox" placeholder="Name,Number&#10;Maya Chen,4&#10;Leo Ortiz,7"></textarea><div><button class="btn sm primary" data-act="roster-go">Import pasted roster</button></div>`:''}
   <p class="help">CSV with a Name (or First and Last) column and a Number or Jersey column. Spreadsheet exports and rows copied from a team app work. Matching names update their number.</p></div>
 
+  <div class="section"><h2>Game format</h2>
+  ${(()=>{const f=fmtOf(t);const is=(p,l)=>f.periods===p&&f.len===l;return `<div class="chips" style="flex-wrap:wrap"><button class="chip" data-act="fmt-preset" data-v="4x12" aria-pressed="${is(4,12)}">4 × 12 min quarters</button><button class="chip" data-act="fmt-preset" data-v="2x25" aria-pressed="${is(2,25)}">2 × 25 min halves</button><button class="chip" data-act="fmt-preset" data-v="2x30" aria-pressed="${is(2,30)}">2 × 30 min halves</button></div>
+  <div class="row" style="align-items:end"><label class="field" style="flex:0 1 150px"><span class="label">Periods</span><select id="tPer" data-field="team-periods"><option value="4" ${f.periods===4?'selected':''}>4 quarters</option><option value="2" ${f.periods===2?'selected':''}>2 halves</option></select></label>
+  <label class="field" style="flex:0 1 110px"><span class="label">Minutes each</span><input type="number" id="tLen" data-field="team-len" min="1" max="60" value="${f.len}"></label></div>
+  <p class="help">Used by the game timer. You can change it for a single game on that game's page.</p>`;})()}</div>
+
   <div class="section"><h2>Game calendars</h2>
   <p class="help">Add each calendar link your league or team app gives you (TeamSnap, SportsEngine, GameChanger, Google Calendar and others offer an .ics or webcal link). Open the link to download the file, then import it here. Re-import any time: times and fields update, and the goals you tallied stay.</p>
   ${n}
@@ -642,19 +686,37 @@ function countLine(c){
   const parts=[`${c.g} G`];if(c.a)parts.push(c.a+' A');if(c.sh)parts.push(c.sh+' Sh');if(c.sv)parts.push(c.sv+' Sv');if(c.og)parts.push(c.og+' OG');
   return esc(parts.join(' · '))+(c.y?' <span class="card y" title="Yellow card"></span>'.repeat(c.y):'')+(c.r?' <span class="card r" title="Red card"></span>'.repeat(c.r):'');
 }
+function clockPanel(t,g){
+  const f=fmtOf(t,g),c=g.clock||{state:'idle',p:0,done:[]};
+  const last=(c.done||[])[c.done.length-1];const ms=clockMs(c);const live=c.state==='running'||c.state==='paused';
+  const over=live&&c.p<=f.periods&&ms>f.len*60000;
+  const next=c.state==='idle'?1:(last?last.p+1:1);
+  let label,main='',side='';
+  if(c.state==='idle'){label=`${f.periods}×${f.len}`;main=`<button class="clk-main" data-act="clk-start">Start ${perLabel(f,1)}</button>`;}
+  else if(c.state==='running'){label=perLabel(f,c.p);main=`<button class="clk-main" data-act="clk-end">End ${perLabel(f,c.p)}</button>`;side=`<button class="clk-icon" data-act="clk-pause" aria-label="Pause timer">❚❚</button>`;}
+  else if(c.state==='paused'){label=perLabel(f,c.p);main=`<button class="clk-main" data-act="clk-resume">Resume</button>`;side=`<button class="clk-icon" data-act="clk-end" aria-label="End ${perName(f,c.p)}">End</button>`;}
+  else if(c.state==='break'){label=perLabel(f,last.p)+' done';main=`<button class="clk-main" data-act="clk-start">Start ${perLabel(f,next)}</button>`;}
+  else if(c.state==='over'){label=perLabel(f,last.p)+' done';main=`<button class="clk-main" data-act="clk-finish">Finish game</button>`;side=`<button class="clk-icon" data-act="clk-start" aria-label="Start extra time">+OT</button>`;}
+  else{label='Full time';}
+  const more=c.state!=='idle'?`<button class="clk-icon" data-act="clk-more" aria-label="Timer options" aria-expanded="${!!ui.clkMore}">•••</button>`:'';
+  const opts=ui.clkMore&&c.state!=='idle'?`<div class="clk-opts">${live?`<button data-act="clk-adj" data-v="-60">−1 min</button><button data-act="clk-adj" data-v="60">+1 min</button>`:''}<button data-act="clk-reset" class="${ui.armed==='clk-reset'?'armed':''}">${ui.armed==='clk-reset'?'Tap again to reset':'Reset timer'}</button></div>`:'';
+  return `<div class="clk-strip" id="clock"><span class="clk-per">${esc(label)}</span>
+    <span class="clk-time"><span class="clk-digits ${over?'over':''} ${c.state==='paused'?'paused':''}" id="clkDigits">${c.state==='idle'?'00:00':mmss(ms)}</span><span class="clk-extra" id="clkExtra">${over?'+'+mmss(ms-f.len*60000):''}</span></span>
+    <span class="clk-acts">${main}${side}${more}</span>${opts}</div>`;
+}
 function viewGame(){
   const t=S.teams[ui.teamId],g=t&&t.games[ui.gameId];if(!g){ui.view='games';return viewGames();}
   const counts=tally(g),absent=new Set(g.absent||[]);
   const af=ui.assistFor&&g.goals.find(x=>x.id===ui.assistFor);
   const mp=ui.moreFor&&player(t,ui.moreFor);
-  const th=(g.oppGoals||0)+ownGoals(g);
+  const th=theirScore(g);
   let html=`<div class="section"><div class="back"><button class="btn ghost" data-act="back">‹ Back</button><span class="meta"><span class="dot" style="background:${t.color}"></span>${esc(t.name)} · ${fmtDay(g.start)}${g.allDay?'':' · '+fmtTime(g.start)}</span></div>
   ${g.cancelled?'<div class="notice err">The calendar marks this game as cancelled.</div>':''}
   <div class="board"><div class="side"><span class="nm">${esc(t.name)}</span><span class="n ${ui.flashId==='us'?'flash':''}">${g.goals.length}</span><button class="oppog" data-act="opp-og">+ Opp. own goal</button></div>
   <div class="dash">–</div>
   <div class="side"><span class="nm">${esc(g.opp||'Opponent')}</span><span class="n ${ui.flashId==='them'?'flash':''}">${th}</span>
-  <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div></div>
-  <div class="row" style="justify-content:flex-end"><button class="btn sm ${isPast(g)?'primary':''}" data-act="share-card">Share result</button></div>`;
+  <div class="pm"><button data-act="opp" data-v="-1" aria-label="Remove opponent goal">−</button><button data-act="opp" data-v="1" aria-label="Add opponent goal">+</button></div></div>${clockPanel(t,g)}</div>
+  <div class="row" style="justify-content:space-between">${(()=>{const ps=periodScores(t,g);return ps?`<span class="meta per-line">${esc(periodLine(ps))}</span>`:'<span></span>';})()}<button class="btn sm ${isPast(g)?'primary':''}" data-act="share-card">Share result</button></div>`;
   if(af){
     html+=`<div class="assist" role="status"><div><b>Goal: ${esc(pname(t,af.p))}</b> at ${fmtTime(af.t)}. Who assisted?</div><div class="chips" style="flex-wrap:wrap">
     ${t.players.filter(p=>p.id!==af.p&&!absent.has(p.id)).map(p=>`<button class="chip" data-act="assist" data-v="${p.id}">${esc(p.name)}</button>`).join('')}<button class="chip" data-act="assist" data-v="">No assist</button></div></div>`;
@@ -675,17 +737,20 @@ function viewGame(){
     <div class="chips" style="flex-wrap:wrap;padding-top:8px">${t.players.map(p=>`<button class="chip" data-act="absent" data-v="${p.id}" aria-pressed="${!absent.has(p.id)}">${absent.has(p.id)?'':'✓ '}${esc(p.name)}</button>`).join('')}</div>
     <p class="help">Untick anyone who missed this game. Games played in Stats counts only the players ticked here.</p></details>`;
   }else html+=`<div class="empty"><p>Add players to ${esc(t.name)} so you can tap them when they score.</p><button class="btn primary" data-act="open-team" data-team="${t.id}">Add players</button></div>`;
-  const items=g.goals.map(x=>({id:x.id,t:x.t,what:goalLabel(x),who:x.oppOg?'':pname(t,x.p),extra:x.a?'assist '+pname(t,x.a):'',goal:true}))
-    .concat((g.events||[]).map(e=>({id:e.id,t:e.t,what:EV[e.type]||e.type,who:pname(t,e.p),extra:e.type==='og'?'counts for '+(g.opp||'opponent'):'',type:e.type}))).sort((a,b)=>b.t-a.t);
-  html+=`</div><div class="section"><h2>Game log</h2>`+(items.length?`<div class="list">${items.map(x=>`<div class="logrow"><span class="t">${fmtTime(x.t)}</span><span class="w">${x.type==='yellow'?'<span class="card y"></span> ':x.type==='red'?'<span class="card r"></span> ':''}<b>${esc(x.what)}</b>${x.who?' · '+esc(x.who):''}${x.extra?' <span class="meta" style="display:inline">'+esc(x.extra)+'</span>':''}</span><button class="btn sm ghost danger" data-act="undo" data-v="${x.id}">Remove</button></div>`).join('')}</div>`:`<p class="help">Nothing logged yet. Each tap is saved with the time, so you can remove a mistake here.</p>`)+`</div>
+  const items=g.goals.map(x=>({id:x.id,t:x.t,ps:x.ps,what:goalLabel(x),who:x.oppOg?'':pname(t,x.p),extra:x.a?'assist '+pname(t,x.a):'',goal:true}))
+    .concat((g.events||[]).map(e=>({id:e.id,t:e.t,ps:e.ps,what:EV[e.type]||e.type,who:e.type==='oppgoal'?'':pname(t,e.p),extra:e.type==='og'?'counts for '+(g.opp||'opponent'):'',type:e.type}))).sort((a,b)=>b.t-a.t);
+  html+=`</div><div class="section"><h2>Game log</h2>`+(items.length?`<div class="list">${items.map(x=>`<div class="logrow"><span class="t">${esc(stampLabel(t,g,x))}</span><span class="w">${x.type==='yellow'?'<span class="card y"></span> ':x.type==='red'?'<span class="card r"></span> ':''}<b>${esc(x.what)}</b>${x.who?' · '+esc(x.who):''}${x.extra?' <span class="meta" style="display:inline">'+esc(x.extra)+'</span>':''}</span><button class="btn sm ghost danger" data-act="undo" data-v="${x.id}">Remove</button></div>`).join('')}</div>`:`<p class="help">Nothing logged yet. Each tap is saved with the time, so you can remove a mistake here.</p>`)+`</div>
   <div class="section"><h2>Game details</h2>
   <div class="row"><label class="field"><span class="label">Opponent</span><input type="text" id="gdOpp" data-field="game-opp" value="${esc(g.opp||'')}"></label>
   <label class="field"><span class="label">Kickoff</span><input type="datetime-local" id="gdStart" data-field="game-start" value="${localInput(g.start)}"></label></div>
   <label class="field"><span class="label">Location</span><input type="text" id="gdLoc" data-field="game-loc" value="${esc(g.loc||'')}"></label>
+  ${(()=>{const f=fmtOf(t,g);return `<div class="row" style="align-items:end"><label class="field" style="flex:0 1 150px"><span class="label">Periods</span><select id="gdPer" data-field="game-periods"><option value="4" ${f.periods===4?'selected':''}>4 quarters</option><option value="2" ${f.periods===2?'selected':''}>2 halves</option></select></label>
+  <label class="field" style="flex:0 1 110px"><span class="label">Minutes each</span><input type="number" id="gdLen" data-field="game-len" min="1" max="60" value="${f.len}"></label>
+  <span class="help" style="flex:1 1 160px;margin:0 0 10px">${g.format?'This game only. Team default: '+fmtText(fmtOf(t)):'Team default. Change it here for this game only.'}</span></div>`;})()}
   ${g.title&&g.src==='feed'?`<p class="help">Calendar title: ${esc(g.title)}</p>`:''}
   <div class="row"><button class="btn ${g.final?'primary':''}" data-act="final">${g.final?'Final ✓':'Mark as final'}</button>
   <button class="btn ${ui.armed==='game'?'armed':'danger'}" data-act="del-game">${ui.armed==='game'?'Tap again to delete game':'Delete game'}</button></div>
-  ${ui.afterFinal===g.id?`<div class="assist" role="status" id="afterFinal"><b>Final score saved: ${g.goals.length}–${(g.oppGoals||0)+ownGoals(g)}.</b> Back up now so this game is safe in iCloud Drive?
+  ${ui.afterFinal===g.id?`<div class="assist" role="status" id="afterFinal"><b>Final score saved: ${g.goals.length}–${theirScore(g)}.</b> Back up now so this game is safe in iCloud Drive?
     <div class="row"><button class="btn primary" data-act="backup">Back up now</button><button class="btn" data-act="share-card">Share result</button><button class="btn ghost" data-act="after-final-dismiss">Not now</button></div>
     <p class="help" style="margin:0">On iPhone, choose Save to Files, then iCloud Drive, and replace the old backup.</p></div>`
   :ui.afterFinal==='done'?`<div class="notice" role="status">Backed up. <button class="btn sm ghost" data-act="after-final-dismiss">OK</button></div>`:''}
@@ -802,14 +867,15 @@ function gameSummary(t,g){
   const scorers=order.map(k=>{const v=sc[k];let s=nm(k);if(v.n>1)s+=' '+v.n;if(v.pk)s+=` (${v.pk>1?v.pk+' ':''}PK)`;return s;});
   const fmt=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]).map(([id,n])=>pname(t,id)+(n>1?' '+n:''));
   const ogs=(g.events||[]).filter(e=>e.type==='og').map(e=>pname(t,e.p));
-  const list=g.goals.slice().sort((a,b)=>a.t-b.t).map(x=>({name:x.oppOg?'Own goal by '+(g.opp||'opponent'):x.p?pname(t,x.p):'Other player',pk:!!x.pk,a:x.a?pname(t,x.a):'',t:x.t}));
-  return{r,scorers,assists:fmt(as),saves:fmt(sv),ogs,list,done:isPast(g)};
+  const list=g.goals.slice().sort((a,b)=>a.t-b.t).map(x=>({name:x.oppOg?'Own goal by '+(g.opp||'opponent'):x.p?pname(t,x.p):'Other player',pk:!!x.pk,a:x.a?pname(t,x.a):'',t:x.t,when:stampLabel(t,g,x)}));
+  return{r,scorers,assists:fmt(as),saves:fmt(sv),ogs,list,done:isPast(g),per:periodScores(t,g)};
 }
 function summaryText(t,g){
   const m=gameSummary(t,g);const d=new Date(g.start);
   const lines=[`${t.name.replace(/ \(example\)$/,'')} ${m.r.us}–${m.r.th} ${g.opp||'Opponent'}${m.r.r&&m.done?' ('+({W:'Win',L:'Loss',D:'Draw'})[m.r.r]+')':''}`,
     d.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})+(g.loc?' · '+g.loc:'')];
-  if(m.list.length){lines.push('','Goals:');m.list.forEach((x,i)=>lines.push(`${i+1}. ${x.name}${x.pk?' (PK)':''}${x.a?', assist '+x.a:''} · ${fmtTime(x.t)}`));}
+  if(m.per)lines.push(periodLine(m.per));
+  if(m.list.length){lines.push('','Goals:');m.list.forEach((x,i)=>lines.push(`${i+1}. ${x.name}${x.pk?' (PK)':''}${x.a?', assist '+x.a:''} · ${x.when}`));}
   if(m.saves.length){if(m.list.length)lines.push('');lines.push('Saves: '+m.saves.join(', '));}
   return lines.join('\n');
 }
@@ -857,7 +923,10 @@ function paintCard(t,g,cardH){
   if(res){x.font=`700 44px ${D}`;const lbl=({W:'WIN',L:'LOSS',D:'DRAW'})[res];const w=x.measureText(lbl).width+48;
     x.fillStyle=res==='W'?'#3FAE72':res==='L'?'#D9534A':'rgba(255,255,255,0.25)';
     x.beginPath();x.roundRect?x.roundRect(L,y,w,64,32):x.rect(L,y,w,64);x.fill();
-    x.fillStyle='#FFFFFF';x.fillText(lbl,L+24,y+47);y+=64;}
+    x.fillStyle='#FFFFFF';x.fillText(lbl,L+24,y+47);
+    if(m.per){x.font=`500 32px ${B}`;x.fillStyle='rgba(255,255,255,0.75)';const pl=wrapLines(x,periodLine(m.per,'   '),R-L-w-30)[0];x.fillText(pl,L+w+28,y+44);}
+    y+=64;}
+  else if(m.per){x.font=`500 32px ${B}`;x.fillStyle='rgba(255,255,255,0.75)';x.fillText(wrapLines(x,periodLine(m.per,'   '),R-L)[0],L,y+44);y+=64;}
   y+=60;
   // lists
   const sect=(label,items)=>{if(!items.length)return;
@@ -869,7 +938,7 @@ function paintCard(t,g,cardH){
     x.fillStyle='#F5C451';x.font=`700 36px ${D}`;x.fillText('GOALS',L,y);y+=58;
     m.list.forEach((g2,i)=>{
       x.textAlign='left';x.fillStyle='#F5C451';x.font=`700 44px ${D}`;x.fillText(String(i+1),L,y);
-      x.textAlign='right';x.fillStyle='rgba(255,255,255,0.55)';x.font=`500 32px ${B}`;const tm=fmtTime(g2.t);x.fillText(tm,R,y);const tw=x.measureText(tm).width;
+      x.textAlign='right';x.fillStyle='rgba(255,255,255,0.55)';x.font=`500 32px ${B}`;const tm=g2.when;x.fillText(tm,R,y);const tw=x.measureText(tm).width;
       x.textAlign='left';const nx=L+64,maxW=R-tw-32-nx;
       x.fillStyle='#FFFFFF';x.font=`600 42px ${B}`;let nm=g2.name+(g2.pk?' (PK)':'');
       while(x.measureText(nm).width>maxW&&nm.length>4)nm=nm.slice(0,-2)+'…';
@@ -908,16 +977,16 @@ function toCsv(rows){return rows.map(r=>r.map(csvCell).join(',')).join('\r\n')+'
 function buildCsv(kind){
   const teams=statsTeams();
   if(kind==='career')return careerCsv();
-  if(kind==='events'){const rows=[['Date','Kickoff','Team','Opponent','Time logged','Event','Player','Number','Assist']];
+  if(kind==='events'){const rows=[['Date','Kickoff','Team','Opponent','Period','Minute','Time logged','Event','Player','Number','Assist']];
     for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){
-      const items=g.goals.map(x=>({t:x.t,ev:goalLabel(x),p:x.oppOg?null:x.p,a:x.a})).concat((g.events||[]).map(e=>({t:e.t,ev:EV[e.type]||e.type,p:e.p,a:null}))).sort((a,b)=>a.t-b.t);
-      for(const x of items){const p=player(t,x.p);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,fmtTime(x.t),x.ev,x.p?pname(t,x.p):(x.ev==='Opponent own goal'?'':'Unknown'),p?p.num:'',x.a?pname(t,x.a):'']);}}
+      const f=fmtOf(t,g);const items=g.goals.map(x=>({t:x.t,ps:x.ps,ev:goalLabel(x),p:x.oppOg?null:x.p,a:x.a,anon:!!x.oppOg})).concat((g.events||[]).map(e=>({t:e.t,ps:e.ps,ev:EV[e.type]||e.type,p:e.p,a:null,anon:e.type==='oppgoal'}))).sort((a,b)=>a.t-b.t);
+      for(const x of items){const p=player(t,x.p);rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,x.ps?perLabel(f,x.ps.p):'',x.ps?minuteLabel(f,x.ps).split(' ')[1]:'',fmtTime(x.t),x.ev,x.p?pname(t,x.p):(x.anon?'':'Unknown'),p?p.num:'',x.a?pname(t,x.a):'']);}}
     return rows;}
   if(kind==='totals'){const rows=[['Team','Player','Number','Games played','Goals','Assists','Shots','Shots on goal','Penalties scored','Penalties taken','Saves','Yellow cards','Red cards','Own goals']];
     for(const r of statsFor(teams))rows.push([r.t.name,r.p.name,r.p.num,r.gp,r.g,r.a,r.sh,r.sog,r.pk,r.pka,r.sv,r.y,r.r,r.og]);return rows;}
-  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Status','Players played','Absent']];
+  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Score by period','Status','Players played','Absent']];
   for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){const r=result(g);const ab=(g.absent||[]).map(id=>pname(t,id));
-    rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming',t.players.length-ab.length,ab.join('; ')]);}
+    rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',(()=>{const ps=periodScores(t,g);return ps?periodLine(ps,'; ').replace(/–/g,'-'):'';})(),g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming',t.players.length-ab.length,ab.join('; ')]);}
   return rows;
 }
 async function offerFile(filename,text,title){
@@ -991,6 +1060,18 @@ function doBackup(){
   return offerFile(`touchline-backup-${isoDate(Date.now())}.json`,JSON.stringify({app:'touchline-tally',version:1,saved:new Date().toISOString(),relay:relayUrl(),teams:S.teams},null,1),'Backup')
     .then(ok=>{if(ok){S.lastBackup=Date.now();saveLocal();if(ui.afterFinal)ui.afterFinal='done';}render();return ok;});
 }
+const buzzed=new Set();let wakeLock=null,wakeReq=false;
+setInterval(()=>{
+  const t=S.teams[ui.teamId],g=ui.view==='game'&&t&&t.games[ui.gameId],c=g&&g.clock;
+  const live=!!(c&&c.state==='running'&&document.visibilityState==='visible');
+  if(live){const f=fmtOf(t,g),ms=clockMs(c),el=document.getElementById('clkDigits'),ex=document.getElementById('clkExtra');
+    const over=c.p<=f.periods&&ms>f.len*60000;
+    if(el){el.textContent=mmss(ms);el.classList.toggle('over',over);}
+    if(ex)ex.textContent=over?'+'+mmss(ms-f.len*60000):'';
+    if(over&&!buzzed.has(g.id+':'+c.p)){buzzed.add(g.id+':'+c.p);try{navigator.vibrate&&navigator.vibrate([300,150,300]);}catch(e){}}}
+  if(live&&!wakeLock&&!wakeReq&&navigator.wakeLock){wakeReq=true;navigator.wakeLock.request('screen').then(l=>{wakeLock=l;l.addEventListener('release',()=>{wakeLock=null;});}).catch(()=>{}).finally(()=>{wakeReq=false;});}
+  if(!live&&wakeLock){wakeLock.release().catch(()=>{});wakeLock=null;}
+},1000);
 let armT=null;function arm(k){ui.armed=k;clearTimeout(armT);armT=setTimeout(()=>{ui.armed=null;render();},3500);}
 document.addEventListener('click',e=>{
   const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,v=b.dataset.v;
@@ -1030,18 +1111,35 @@ document.addEventListener('click',e=>{
   case 'roster-go':importRoster(t.id,document.getElementById('rosterBox').value);return;
   case 'paste':ui.paste=ui.paste===v?null:v;break;
   case 'paste-go':{const txt=document.getElementById('pasteBox').value;importICS(t.id,v,txt);return;}
-  case 'goal':{const x={id:rid(),p:v||null,a:null,t:Date.now()};g.goals.push(x);present(g,v);ui.moreFor=null;ui.assistFor=(v&&t.players.length>1)?x.id:null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
-  case 'opp-og':{g.goals.push({id:rid(),p:null,a:null,t:Date.now(),oppOg:true});ui.assistFor=null;ui.moreFor=null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'goal':{const x={id:rid(),p:v||null,a:null,t:Date.now()};{const ps=stampNow(g);if(ps)x.ps=ps;}g.goals.push(x);present(g,v);ui.moreFor=null;ui.assistFor=(v&&t.players.length>1)?x.id:null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
+  case 'opp-og':{const x={id:rid(),p:null,a:null,t:Date.now(),oppOg:true};{const ps=stampNow(g);if(ps)x.ps=ps;}g.goals.push(x);ui.assistFor=null;ui.moreFor=null;ui.flashId='us';touch(t.id);render();ui.flashId=null;return;}
   case 'more':ui.moreFor=ui.moreFor===v?null:v;ui.assistFor=null;break;
   case 'more-close':ui.moreFor=null;break;
   case 'ev':{const pid=ui.moreFor;if(!pid)break;present(g,pid);
-    if(v==='pkgoal'){g.goals.push({id:rid(),p:pid,a:null,t:Date.now(),pk:true});ui.flashId='us';}
-    else{evs(g).push({id:rid(),type:v,p:pid,t:Date.now()});if(v==='og')ui.flashId='them';}
+    const ps=stampNow(g);
+    if(v==='pkgoal'){const x={id:rid(),p:pid,a:null,t:Date.now(),pk:true};if(ps)x.ps=ps;g.goals.push(x);ui.flashId='us';}
+    else{const e={id:rid(),type:v,p:pid,t:Date.now()};if(ps)e.ps=ps;evs(g).push(e);if(v==='og')ui.flashId='them';}
     ui.moreFor=null;touch(t.id);render();ui.flashId=null;return;}
   case 'absent':{const ab=new Set(g.absent||[]);ab.has(v)?ab.delete(v):ab.add(v);g.absent=[...ab];touch(t.id);break;}
   case 'assist':{const x=g.goals.find(x=>x.id===ui.assistFor);if(x)x.a=v||null;ui.assistFor=null;touch(t.id);break;}
   case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(g.events)g.events=g.events.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
-  case 'opp':g.oppGoals=Math.max(0,(g.oppGoals||0)+(+v));ui.flashId=+v>0?'them':null;touch(t.id);render();ui.flashId=null;return;
+  case 'opp':{
+    if(+v>0){const e={id:rid(),type:'oppgoal',p:null,t:Date.now()};const ps=stampNow(g);if(ps)e.ps=ps;evs(g).push(e);ui.flashId='them';}
+    else{const og=(g.events||[]).filter(e=>e.type==='oppgoal').sort((a,b)=>b.t-a.t)[0];
+      if(og)g.events=g.events.filter(e=>e!==og);else g.oppGoals=Math.max(0,(g.oppGoals||0)-1);}
+    touch(t.id);render();ui.flashId=null;return;}
+  case 'clk-start':{ui.clkMore=false;const c=g.clock||(g.clock={state:'idle',p:0,done:[]});const last=c.done[c.done.length-1];
+    c.p=c.state==='idle'?1:(last?last.p+1:1);c.state='running';c.start=Date.now();c.pausedMs=0;c.pausedAt=null;buzzed.delete(g.id+':'+c.p);touch(t.id);break;}
+  case 'clk-pause':{const c=g.clock;if(c&&c.state==='running'){c.state='paused';c.pausedAt=Date.now();touch(t.id);}break;}
+  case 'clk-resume':{const c=g.clock;if(c&&c.state==='paused'){c.pausedMs+=Date.now()-c.pausedAt;c.pausedAt=null;c.state='running';touch(t.id);}break;}
+  case 'clk-adj':{const c=g.clock;if(c&&(c.state==='running'||c.state==='paused')){const ms=clockMs(c);const d=Math.max(-ms,(+v)*1000);c.start-=d;touch(t.id);}break;}
+  case 'clk-end':{ui.clkMore=false;const c=g.clock;if(!c||(c.state!=='running'&&c.state!=='paused'))break;const f=fmtOf(t,g);
+    const end=c.state==='paused'?c.pausedAt:Date.now();c.done.push({p:c.p,start:c.start,end,pausedMs:c.pausedMs});
+    c.state=c.p>=f.periods?'over':'break';c.pausedAt=null;touch(t.id);break;}
+  case 'clk-finish':{ui.clkMore=false;const c=g.clock;if(c)c.state='done';g.final=true;ui.afterFinal=g.id;touch(t.id);break;}
+  case 'clk-more':ui.clkMore=!ui.clkMore;break;
+  case 'clk-reset':if(ui.armed==='clk-reset'){delete g.clock;ui.clkMore=false;ui.armed=null;touch(t.id);}else arm('clk-reset');break;
+  case 'fmt-preset':{const [pp,ll]=v.split('x').map(Number);t.format={periods:pp,len:ll};touch(t.id);break;}
   case 'final':g.final=!g.final;touch(t.id);ui.afterFinal=g.final?g.id:null;break;
   case 'csv':{const k=v,rows=buildCsv(k);const scope=k==='career'?'all-seasons':ui.statsTeam==='all'?'all-teams':(S.teams[ui.statsTeam].name.replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'').toLowerCase());
     offerFile(`touchline-${k}-${scope}-${isoDate(Date.now())}.csv`,toCsv(rows),k==='career'?'Career stats CSV':k==='events'?'Game log CSV':k==='totals'?'Player totals CSV':'Game results CSV');return;}
@@ -1062,7 +1160,7 @@ document.addEventListener('submit',e=>{
   switch(f.dataset.form){
   case 'new-season':{
     const keep=new Set(new FormData(f).getAll('keep'));const id='t_'+rid();
-    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,lineage:lineageOf(t),prev:t.id,
+    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,format:t.format,lineage:lineageOf(t),prev:t.id,
       players:t.players.filter(p=>keep.has(p.id)).map(p=>({id:'p_'+rid(),key:pkey(p),num:p.num,name:p.name})),
       feeds:[],games:{},skip:t.skip,only:t.only,created:Date.now()};
     if((d.feedLabel||'').trim()||(d.feedUrl||'').trim())nt.feeds.push({id:'f_'+rid(),label:(d.feedLabel||'').trim()||'Season calendar',url:(d.feedUrl||'').trim(),last:null});
@@ -1093,6 +1191,10 @@ document.addEventListener('change',e=>{
   const el=e.target;const k=el.dataset&&el.dataset.field;if(!k)return;if(k==='relay'){S.relay=el.value.trim();saveLocal();refreshFeeds();return;}const t=S.teams[ui.teamId];if(!t)return;const g=t.games[ui.gameId];
   if(k==='team-name'){const n=el.value.trim();if(n)t.name=n;}
   else if(k==='team-skip')t.skip=el.value;
+  else if(k==='team-periods'){t.format={...fmtOf(t),periods:+el.value};render();}
+  else if(k==='team-len'){const n=Math.round(+el.value);if(n>=1&&n<=60){t.format={...fmtOf(t),len:n};}render();}
+  else if(k==='game-periods'&&g){g.format={...fmtOf(t,g),periods:+el.value};render();}
+  else if(k==='game-len'&&g){const n=Math.round(+el.value);if(n>=1&&n<=60)g.format={...fmtOf(t,g),len:n};render();}
   else if(k==='team-only')t.only=el.value;
   else if(k==='game-opp'&&g){g.opp=el.value.trim();g.oppEdited=true;}
   else if(k==='game-loc'&&g)g.loc=el.value.trim();

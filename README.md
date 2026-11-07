@@ -7,6 +7,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 - **Multiple teams.** Each team has its own roster, color and schedule. You can import a roster from a CSV file.
 - **Calendar feeds.** Connect each team's calendar feed from TeamSnap, SportsEngine, Google Calendar and others. Games update every time you open the app, and practices are filtered out.
 - **Game day.** Tap a player for a goal, then pick the assist. The ••• button logs shots, shots on goal, saves, penalties scored or missed, own goals, and yellow and red cards. Mark who missed the game, keep the opponent's score, and remove mistakes from the time-stamped game log.
+- **Game timer.** Quarters or halves per team (for example 4 × 12 or 2 × 25 minutes). Start, pause and end each period, fix the clock by a minute, and add extra time. Every goal and event is stamped like "Q2 7'", and you get the score by period.
 - **Share results.** After a game, tap **Share result** for an image with the date, score, every goal with its scorer and assist, and saves, ready to text or post. There's also a plain-text version for group chats.
 - **Season stats.** Win-loss-draw records, and per player: games played, goals, assists, shots, shots on goal, penalties, saves, cards and own goals. Export everything as CSV.
 - **Seasons and career stats.** Start a new season from a team's page to carry the roster forward and archive the old season. The Career view adds up each player's stats across every season, and you can export it as CSV.
@@ -25,8 +26,9 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 2. **Players:** add players one by one, or use **Import roster CSV** or **Paste roster**. Tap **Edit** next to a player to change their name or number; past games and stats update to match. The file needs a `Name` column (or `First` and `Last`) and, if you like, a `Number` or `Jersey` column.
 3. **Game calendars:** add the team's calendar link (`webcal://`, `http://` or `https://` links ending in `.ics`). The app loads it right away and again every time it opens. Use **Skip events containing** to filter out practices and other non-game events.
 4. **Games tab:** open a game and tap a player each time they score. Tap a second name to record the assist, or tap **No assist**. Tap **•••** on a player for other events. Use **+ Opp. own goal** when the other team scores on themselves, and **Who's playing** to untick absent players.
-5. **Share:** in a game, tap **Share result**, then **Share image** to send it or save it to Photos, or **Copy as text**.
-6. **Stats tab:** see records and player totals, and export CSV files.
+5. **Timer:** set each team's **Game format** on its page (a game can override it in Game details). In a game, tap **Start Q1** (or **Start 1st half**) at kickoff and **End Q1** when the ref blows the whistle. The clock keeps running if you lock the phone. It turns gold once time is up and shows the added time. The timer sits in a strip at the bottom of the scoreboard. Use **❚❚** to pause for injury breaks, and **•••** for **−1 min / +1 min** (if you started late) or **Reset timer**. After the last period, tap **Finish game**, or **Start extra time** for overtime. The opponent's **+** now logs each goal with its time; **−** removes the latest one.
+6. **Share:** in a game, tap **Share result**, then **Share image** to send it or save it to Photos, or **Copy as text**.
+7. **Stats tab:** see records and player totals, and export CSV files.
 
 ### When a new season starts
 
