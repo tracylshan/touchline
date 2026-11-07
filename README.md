@@ -8,6 +8,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 - **Calendar feeds.** Connect each team's calendar feed from TeamSnap, SportsEngine, Google Calendar and others. Games update every time you open the app, and practices are filtered out.
 - **Game day.** Tap a player for a goal, then pick the assist. The ••• button logs shots, shots on goal, saves, penalties scored or missed, own goals, and yellow and red cards. Mark who missed the game, keep the opponent's score, and remove mistakes from the time-stamped game log.
 - **Game timer.** Quarters or halves per team (for example 4 × 12 or 2 × 25 minutes). Start, pause and end each period, fix the clock by a minute, and add extra time. Every goal and event is stamped like "Q2 7'", and you get the score by period.
+- **Captain rotation.** One captain per game, with the app suggesting whose turn is next so every kid gets a chance. Plan the rest of the season in one tap. Captains show on the parents' page.
 - **Share results.** After a game, tap **Share result** for an image with the date, score, every goal with its scorer and assist, and saves, ready to text or post. There's also a plain-text version for group chats.
 - **Season stats.** Win-loss-draw records, and per player: games played, goals, assists, shots, shots on goal, penalties, saves, cards and own goals. Export everything as CSV.
 - **Seasons and career stats.** Start a new season from a team's page to carry the roster forward and archive the old season. The Career view adds up each player's stats across every season, and you can export it as CSV.
@@ -66,11 +67,21 @@ The included Cloudflare worker (`relay/worker.js`) can also store one shared cop
 - The free Cloudflare plan allows 1,000 saves a day; a busy game day uses a few dozen.
 - The passphrase is stored on each device. To stop syncing on a device, tap **Turn off sync on this device**.
 
+## Captains
+
+Each game has one captain, shown with a **C** on their player button.
+
+- **Picking:** in a game with no captain, the app shows **Up next** and a **Make captain** button. The next captain is whoever has had the fewest turns this season, then whoever went longest ago, skipping anyone marked as not playing. **Choose** lets you pick anyone.
+- **Planning ahead:** on the team's page, **Captains** lists everyone's turns. **Plan captains** fills every upcoming game in rotation order; **Clear planned captains** undoes it.
+- **Absent captain:** if a planned captain is marked not playing, the game offers to move their turn to the next game, swapping with that game's captain so nobody loses a turn.
+- **New seasons** start the rotation fresh.
+- **Parents' page:** captains show on results and upcoming games.
+
 ## Sharing a team page with other parents
 
 With sync on, open a team on the Teams tab and tap **Create share link** under **Share with other parents**. Send the link (`https://<your-worker>.workers.dev/t/…`) to other parents. They don't need the app or the passphrase.
 
-- **The page shows:** the team's record, results with scorers, assists, minutes and score by period, upcoming games, and season totals (games played, goals, assists, saves). During a game it shows the live score and refreshes every 30 seconds.
+- **The page shows:** the team's record, results with scorers, assists, minutes and score by period, upcoming games, and season totals (games played, goals, assists, shots, shots on goal, saves). During a game it shows the live score and refreshes every 30 seconds.
 - **It never shows:** calendar links, attendance, cards, or your other teams.
 - **Updates:** the page updates a few seconds after each change syncs. It's served by your worker from the synced data, so update the worker code (`relay/worker.js`) to get this feature.
 - **Control:** search engines are told not to list it. **New link** replaces the link (the old one stops working), and **Turn off** removes the page.

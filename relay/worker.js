@@ -180,6 +180,7 @@ function renderTeam(t, now) {
   const time = ts => d(ts, { hour: "numeric", minute: "2-digit" });
   const players = new Map((t.players || []).map(p => [p.id, p]));
   const pn = id => { const p = players.get(id); return p ? p.name : "Other player"; };
+  const cap = g => g.captain && players.has(g.captain) ? players.get(g.captain).name : "";
   const games = Object.values(t.games || {}).filter(g => g && !g.cancelled).sort((a, b) => a.start - b.start);
   const played = games.filter(g => isPast(g, now) || (g.clock && g.clock.state !== "idle"));
   const upcoming = games.filter(g => !played.includes(g));
@@ -189,13 +190,18 @@ function renderTeam(t, now) {
   for (const g of played) { if (!isPast(g, now)) continue; const us = (g.goals || []).length, th = theirScore(g); gf += us; ga += th; us > th ? w++ : us < th ? l++ : dr++; }
 
   // season totals
-  const st = new Map((t.players || []).map(p => [p.id, { p, gp: 0, g: 0, a: 0, sv: 0 }]));
+  const st = new Map((t.players || []).map(p => [p.id, { p, gp: 0, g: 0, a: 0, sh: 0, sog: 0, sv: 0 }]));
   for (const g of played) {
     if (!isPast(g, now) && !(g.goals || []).length && !(g.events || []).length) continue;
     const ab = new Set(g.absent || []);
     for (const [id, r] of st) if (!ab.has(id)) r.gp++;
-    for (const x of g.goals || []) { if (x.p && st.has(x.p)) st.get(x.p).g++; if (x.a && st.has(x.a)) st.get(x.a).a++; }
-    for (const e of g.events || []) if (e.type === "save" && e.p && st.has(e.p)) st.get(e.p).sv++;
+    for (const x of g.goals || []) { if (x.p && st.has(x.p)) { const r = st.get(x.p); r.g++; r.sh++; r.sog++; } if (x.a && st.has(x.a)) st.get(x.a).a++; }
+    for (const e of g.events || []) {
+      if (!e.p || !st.has(e.p)) continue; const r = st.get(e.p);
+      if (e.type === "save") r.sv++;
+      else if (e.type === "sot") { r.sh++; r.sog++; }
+      else if (e.type === "shot" || e.type === "pkmiss") r.sh++;
+    }
   }
   const rows = [...st.values()].sort((a, b) => b.g - a.g || b.a - a.a || a.p.name.localeCompare(b.p.name));
 
@@ -215,20 +221,20 @@ function renderTeam(t, now) {
     return `<article class="game${isLive ? " is-live" : ""}">
       <div class="g-top"><div><div class="muted small">${esc(day(g.start))}${g.allDay ? "" : " · " + esc(time(g.start))}${g.loc ? " · " + esc(g.loc) : ""}</div><div class="g-opp">${opp(g)}</div></div>
       <div class="g-score">${us}<span class="dash">–</span>${th}</div></div>
-      <div class="g-meta">${status}${pl ? `<span class="muted small">${esc(pl)}</span>` : ""}</div>
+      <div class="g-meta">${status}${pl ? `<span class="muted small">${esc(pl)}</span>` : ""}${cap(g) ? `<span class="small cap"><span class="cb">C</span> ${esc(cap(g))}</span>` : ""}</div>
       ${goals ? `<ol class="goals">${goals}</ol>` : ""}</article>`;
   };
 
   const results = played.slice().reverse().map(gameCard).join("");
-  const sched = upcoming.map(g => `<li><span class="u-date">${esc(day(g.start))}</span><span class="u-opp">${opp(g)}</span><span class="muted small">${g.allDay ? "" : esc(time(g.start))}${g.loc ? " · " + esc(g.loc) : ""}</span></li>`).join("");
-  const table = rows.length ? `<div class="tbl"><table><thead><tr><th>Player</th><th class="n">GP</th><th class="n">G</th><th class="n">A</th><th class="n">Saves</th></tr></thead><tbody>${rows.map(r => `<tr><td><b>${esc(r.p.name)}</b>${r.p.num ? ` <span class="muted">#${esc(r.p.num)}</span>` : ""}</td><td class="n">${r.gp}</td><td class="n"><b>${r.g}</b></td><td class="n">${r.a}</td><td class="n">${r.sv}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No players listed yet.</p>`;
+  const sched = upcoming.map(g => `<li><span class="u-date">${esc(day(g.start))}</span><span class="u-opp">${opp(g)}</span><span class="muted small">${g.allDay ? "" : esc(time(g.start))}${g.loc ? " · " + esc(g.loc) : ""}</span>${cap(g) ? `<span class="small cap"><span class="cb">C</span> Captain: ${esc(cap(g))}</span>` : ""}</li>`).join("");
+  const table = rows.length ? `<div class="tbl"><table><thead><tr><th>Player</th><th class="n">GP</th><th class="n">G</th><th class="n">A</th><th class="n">Sh</th><th class="n">SOG</th><th class="n">Saves</th></tr></thead><tbody>${rows.map(r => `<tr><td><b>${esc(r.p.name)}</b>${r.p.num ? ` <span class="muted">#${esc(r.p.num)}</span>` : ""}</td><td class="n">${r.gp}</td><td class="n"><b>${r.g}</b></td><td class="n">${r.a}</td><td class="n">${r.sh}</td><td class="n">${r.sog}</td><td class="n">${r.sv}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">No players listed yet.</p>`;
 
   const html = `<main class="wrap">
     <header class="hero" style="--team:${safeColor(t.color)}"><div class="eyebrow">Team page</div><h1>${esc(t.name.replace(/\s*\(example\)$/, ""))}</h1>
     <div class="record"><span class="big">${w}-${l}-${dr}</span><span class="muted">W-L-D · ${gf} for, ${ga} against</span></div></header>
     <section><h2>Results</h2>${results || `<p class="muted">No games played yet.</p>`}</section>
     <section><h2>Upcoming</h2>${sched ? `<ul class="sched">${sched}</ul>` : `<p class="muted">No upcoming games.</p>`}</section>
-    <section><h2>Season stats</h2>${table}<p class="muted small">GP games played · G goals · A assists</p></section>
+    <section><h2>Season stats</h2>${table}<p class="muted small">GP games played · G goals · A assists · Sh shots · SOG shots on goal (goals count as both)</p></section>
     <footer class="muted small">Updated ${esc(day(now))}, ${esc(time(now))}${live ? " · refreshes every 30 seconds during games" : ""} · Touchline Tally</footer>
   </main>`;
   return { html, live };
@@ -262,7 +268,8 @@ h1,h2{font-family:var(--d);text-transform:uppercase;margin:0;letter-spacing:.01e
 .min{margin-left:auto;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
 .sched{list-style:none;margin:0;padding:0;background:var(--surface);border:1px solid var(--line);border-radius:14px}
 .sched li{display:grid;grid-template-columns:96px 1fr;gap:2px 10px;padding:10px 14px;border-top:1px solid var(--line)}.sched li:first-child{border-top:0}
-.u-date{font-weight:600;grid-row:span 2}.u-opp{font-weight:600}
+.u-date{font-weight:600;grid-row:span 3}
+.cap{display:inline-flex;align-items:center;gap:5px;font-weight:600}.cb{width:16px;height:16px;border-radius:50%;background:var(--flag);color:#14211A;font-size:10px;font-weight:800;display:inline-grid;place-items:center}.u-opp{font-weight:600}
 .tbl{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:9px 12px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}tr:last-child td{border-bottom:0}.n{text-align:right}

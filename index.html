@@ -153,6 +153,11 @@ abbr{text-decoration:none}
 .clk-opts button{border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);background:none;color:var(--bg);border-radius:9px;padding:6px 10px;font-size:13px;font-weight:600}
 .clk-opts button.armed{background:var(--danger);border-color:var(--danger)}
 .sharebox input{font-size:13px;font-family:ui-monospace,Menlo,monospace}
+.pbtn .num{position:relative}
+.capbadge{position:absolute;top:-7px;right:-7px;width:18px;height:18px;border-radius:50%;background:var(--flag);color:#14211A;font-family:var(--f-body);font-size:11px;font-weight:800;display:grid;place-items:center;line-height:1}
+.capbadge.static{position:static;display:inline-grid}
+.capline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.capline .row{margin-top:6px}
 .per-line{font-variant-numeric:tabular-nums}
 .logrow .w{flex:1;min-width:0}
 .back{display:flex;align-items:center;gap:8px}
@@ -312,7 +317,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.07-3';
+const APP_VERSION='2026.11.07-4';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -506,6 +511,46 @@ const ownGoals=g=>(g.events||[]).filter(e=>e.type==='og').length;
 function goalLabel(x){return x.oppOg?'Opponent own goal':x.pk?'Penalty goal':'Goal';}
 const oppTimed=g=>(g.events||[]).filter(e=>e.type==='oppgoal').length;
 const theirScore=g=>(g.oppGoals||0)+oppTimed(g)+ownGoals(g);
+/* ---------- captains ---------- */
+function capGames(t){return Object.values(t.games||{}).filter(g=>!g.cancelled).sort((a,b)=>a.start-b.start);}
+function capCounts(t,exceptId){ // times each player is captain (played + planned), and their latest game as captain
+  const c={};for(const p of t.players)c[p.id]={n:0,played:0,last:-Infinity,lastPlayed:null,next:null};
+  for(const g of capGames(t)){if(g.id===exceptId||!g.captain||!c[g.captain])continue;const r=c[g.captain];r.n++;r.last=Math.max(r.last,g.start);
+    if(isPast(g)){r.played++;r.lastPlayed=Math.max(r.lastPlayed||0,g.start);}else if(!r.next||g.start<r.next.start)r.next=g;}
+  return c;
+}
+function suggestCaptain(t,g,skip){
+  const c=capCounts(t,g.id),ab=new Set(g.absent||[]);
+  const pool=t.players.filter(p=>!ab.has(p.id)&&p.id!==skip);
+  pool.sort((a,b)=>c[a.id].n-c[b.id].n||c[a.id].last-c[b.id].last||t.players.indexOf(a)-t.players.indexOf(b));
+  return pool[0]||null;
+}
+function setCaptain(g,pid){if(pid)g.captain=pid;else delete g.captain;g.updated=Date.now();}
+function planCaptains(t){let n=0;for(const g of capGames(t)){if(isPast(g)||g.captain)continue;const s=suggestCaptain(t,g);if(s){setCaptain(g,s.id);n++;}}return n;}
+function nextUpcoming(t,g){return capGames(t).find(x=>x.start>g.start&&!isPast(x)&&x.id!==g.id)||null;}
+function captainSection(t){
+  if(!t.players.length)return '';
+  const c=capCounts(t),played=Object.values(c).map(r=>r.played),min=Math.min(...played),ahead=played.filter(n=>n>min).length;
+  const upcoming=capGames(t).filter(g=>!isPast(g)),unplanned=upcoming.filter(g=>!g.captain).length,planned=upcoming.length-unplanned;
+  const rows=t.players.slice().sort((a,b)=>c[a.id].played-c[b.id].played||(c[a.id].lastPlayed||0)-(c[b.id].lastPlayed||0)||t.players.indexOf(a)-t.players.indexOf(b));
+  const anyPlayed=played.some(n=>n>0);
+  return `<div class="section"><h2>Captains</h2>
+  <p class="help">${!anyPlayed?'No one has captained yet this season.':min===0?(()=>{const not=t.players.filter(p=>!c[p.id].played).map(p=>p.name);return `${t.players.length-not.length} of ${t.players.length} have captained. Still waiting: ${esc(not.join(', '))}.`;})():ahead?`Everyone has captained ${min} time${min===1?'':'s'}. ${ahead} of ${t.players.length} ${ahead===1?'has':'have'} had turn ${min+1}.`:`Everyone has captained ${min} time${min===1?'':'s'}. Turn ${min+1} starts next.`} The next captain is whoever has had the fewest turns, then whoever went longest ago.</p>
+  <div class="list">${rows.map(p=>{const r=c[p.id];return `<div class="logrow"><span class="t" style="width:auto"><b>${esc(p.num||'–')}</b></span><span class="w">${esc(p.name)}</span><span class="meta" style="display:inline">${r.played?`${r.played}× · last ${fmtDay(r.lastPlayed)}`:'Not yet'}${r.next?` · next ${fmtDay(r.next.start)}`:''}</span></div>`;}).join('')}</div>
+  <div class="row">${unplanned?`<button class="btn primary" data-act="cap-plan">Plan captains for ${unplanned} upcoming game${unplanned===1?'':'s'}</button>`:''}
+  ${planned?`<button class="btn ghost ${ui.armed==='cap-clear'?'armed':'danger'}" data-act="cap-clear">${ui.armed==='cap-clear'?'Tap again to clear planned captains':'Clear planned captains'}</button>`:''}</div>
+  ${ui.capNotice===t.id?'<div class="notice" role="status">Captains planned. You can change any game on its page.</div>':''}</div>`;
+}
+function captainLine(t,g){
+  const cap=g.captain&&player(t,g.captain),ab=new Set(g.absent||[]);
+  if(ui.capPick)return `<div class="assist sheet"><div class="row" style="justify-content:space-between"><b>Choose a captain</b><button class="btn sm ghost" data-act="cap-pick-close">Close</button></div>
+    <div class="chips" style="flex-wrap:wrap">${t.players.map(p=>`<button class="chip" data-act="cap-set" data-v="${p.id}" aria-pressed="${g.captain===p.id}">${esc(p.name)}${ab.has(p.id)?' (not playing)':''}</button>`).join('')}${cap?'<button class="chip" data-act="cap-set" data-v="">No captain</button>':''}</div></div>`;
+  if(cap&&ab.has(cap.id)){const nx=nextUpcoming(t,g);const sub=suggestCaptain(t,g,cap.id);
+    return `<div class="notice err capline"><b>${esc(cap.name)} is captain but marked not playing.</b><div class="row">${nx?`<button class="btn sm primary" data-act="cap-move">Move ${esc(cap.name)}'s turn to ${fmtDay(nx.start)}</button>`:''}<button class="btn sm" data-act="cap-pick">Pick someone else</button></div></div>`;}
+  if(cap)return `<div class="capline"><span class="capbadge static">C</span> <span>Captain: <b>${esc(cap.name)}</b></span><button class="btn sm ghost" data-act="cap-pick">Change</button></div>`;
+  const sug=suggestCaptain(t,g);
+  return `<div class="capline"><span class="meta" style="display:inline">No captain yet.${sug?` Up next: <b>${esc(sug.name)}</b>`:''}</span>${sug?`<button class="btn sm primary" data-act="cap-set" data-v="${sug.id}">Make captain</button>`:''}<button class="btn sm ghost" data-act="cap-pick">Choose</button></div>`;
+}
 /* ---------- game format & clock ---------- */
 function guessFormat(name){const m=String(name||'').match(/\bU-?(\d{1,2})\b/i);return m&&+m[1]<=8?{periods:4,len:12}:{periods:2,len:25};}
 const fmtOf=(t,g)=>(g&&g.format)||t.format||guessFormat(t.name);
@@ -624,6 +669,7 @@ function viewTeam(){
   ${ui.pasteRoster?`<textarea id="rosterBox" placeholder="Name,Number&#10;Maya Chen,4&#10;Leo Ortiz,7"></textarea><div><button class="btn sm primary" data-act="roster-go">Import pasted roster</button></div>`:''}
   <p class="help">CSV with a Name (or First and Last) column and a Number or Jersey column. Spreadsheet exports and rows copied from a team app work. Matching names update their number.</p></div>
 
+  ${captainSection(t)}
   ${canRefresh?shareSection(t):''}
   <div class="section"><h2>Game format</h2>
   ${(()=>{const f=fmtOf(t);const is=(p,l)=>f.periods===p&&f.len===l;return `<div class="chips" style="flex-wrap:wrap"><button class="chip" data-act="fmt-preset" data-v="4x12" aria-pressed="${is(4,12)}">4 × 12 min quarters</button><button class="chip" data-act="fmt-preset" data-v="2x25" aria-pressed="${is(2,25)}">2 × 25 min halves</button><button class="chip" data-act="fmt-preset" data-v="2x30" aria-pressed="${is(2,30)}">2 × 30 min halves</button></div>
@@ -745,9 +791,10 @@ function viewGame(){
   if(t.players.length){
     const order=t.players.filter(p=>!absent.has(p.id)).concat(t.players.filter(p=>absent.has(p.id)));
     html+=`<div class="pgrid">${order.map(p=>{const c=counts[p.id]||{g:0,a:0,sh:0,sv:0,og:0,y:0,r:0};const out=absent.has(p.id);
-      return `<div class="ptile ${out?'out':''}"><button class="pbtn ${c.g?'hot':''}" data-act="goal" data-v="${p.id}" aria-label="Goal for ${esc(p.name)}"><span class="num">${esc(p.num||'·')}</span><span class="pn">${esc(p.name)}</span><span class="pc">${out?'Not playing':countLine(c)}</span></button><button class="pmore" data-act="more" data-v="${p.id}" aria-label="More events for ${esc(p.name)}">•••</button></div>`;}).join('')}
+      return `<div class="ptile ${out?'out':''}"><button class="pbtn ${c.g?'hot':''}" data-act="goal" data-v="${p.id}" aria-label="Goal for ${esc(p.name)}${g.captain===p.id?' (captain)':''}"><span class="num">${esc(p.num||'·')}${g.captain===p.id?'<span class="capbadge" title="Captain">C</span>':''}</span><span class="pn">${esc(p.name)}</span><span class="pc">${out?'Not playing':countLine(c)}</span></button><button class="pmore" data-act="more" data-v="${p.id}" aria-label="More events for ${esc(p.name)}">•••</button></div>`;}).join('')}
     <div class="ptile"><button class="pbtn" data-act="goal" data-v=""><span class="num">?</span><span class="pn">Other player</span><span class="pc">not on your list</span></button></div></div>
     <p class="help">Tap a name for a goal. Tap ••• for shots, saves, penalties, cards and own goals.</p>
+    ${captainLine(t,g)}
     <details class="who" id="who" ${ui.whoOpen?'open':''}><summary><span class="label">Who's playing</span> <span class="meta" style="display:inline">${t.players.length-absent.size} of ${t.players.length}</span></summary>
     <div class="chips" style="flex-wrap:wrap;padding-top:8px">${t.players.map(p=>`<button class="chip" data-act="absent" data-v="${p.id}" aria-pressed="${!absent.has(p.id)}">${absent.has(p.id)?'':'✓ '}${esc(p.name)}</button>`).join('')}</div>
     <p class="help">Untick anyone who missed this game. Games played in Stats counts only the players ticked here.</p></details>`;
@@ -890,6 +937,7 @@ function summaryText(t,g){
   const lines=[`${t.name.replace(/ \(example\)$/,'')} ${m.r.us}–${m.r.th} ${g.opp||'Opponent'}${m.r.r&&m.done?' ('+({W:'Win',L:'Loss',D:'Draw'})[m.r.r]+')':''}`,
     d.toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'})+(g.loc?' · '+g.loc:'')];
   if(m.per)lines.push(periodLine(m.per));
+  if(g.captain&&player(t,g.captain))lines.push('Captain: '+pname(t,g.captain));
   if(m.list.length){lines.push('','Goals:');m.list.forEach((x,i)=>lines.push(`${i+1}. ${x.name}${x.pk?' (PK)':''}${x.a?', assist '+x.a:''} · ${x.when}`));}
   if(m.saves.length){if(m.list.length)lines.push('');lines.push('Saves: '+m.saves.join(', '));}
   return lines.join('\n');
@@ -921,6 +969,7 @@ function paintCard(t,g,cardH){
   const d=new Date(g.start);y+=58;
   x.fillText(d.toLocaleDateString([], {weekday:'long',month:'long',day:'numeric',year:'numeric'})+(g.allDay?'':' · '+fmtTime(g.start)),L,y);
   if(g.loc){y+=46;x.fillText(wrapLines(x,g.loc,R-L)[0],L,y);}
+  if(g.captain&&player(t,g.captain)){y+=46;x.fillText('Captain: '+pname(t,g.captain),L,y);}
   // scoreboard rows
   y+=70;
   const row=(name,score,color,win)=>{
@@ -999,9 +1048,9 @@ function buildCsv(kind){
     return rows;}
   if(kind==='totals'){const rows=[['Team','Player','Number','Games played','Goals','Assists','Shots','Shots on goal','Penalties scored','Penalties taken','Saves','Yellow cards','Red cards','Own goals']];
     for(const r of statsFor(teams))rows.push([r.t.name,r.p.name,r.p.num,r.gp,r.g,r.a,r.sh,r.sog,r.pk,r.pka,r.sv,r.y,r.r,r.og]);return rows;}
-  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Score by period','Status','Players played','Absent']];
+  const rows=[['Date','Kickoff','Team','Opponent','Home/Away','Location','Goals for','Goals against','Result','Score by period','Status','Captain','Players played','Absent']];
   for(const t of teams)for(const g of Object.values(t.games).sort((a,b)=>a.start-b.start)){const r=result(g);const ab=(g.absent||[]).map(id=>pname(t,id));
-    rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',(()=>{const ps=periodScores(t,g);return ps?periodLine(ps,'; ').replace(/–/g,'-'):'';})(),g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming',t.players.length-ab.length,ab.join('; ')]);}
+    rows.push([isoDate(g.start),g.allDay?'':fmtTime(g.start),t.name,g.opp,g.home===true?'Home':g.home===false?'Away':'',g.loc,r?r.us:'',r?r.th:'',r?r.r:'',(()=>{const ps=periodScores(t,g);return ps?periodLine(ps,'; ').replace(/–/g,'-'):'';})(),g.cancelled?'Cancelled':g.final?'Final':isPast(g)?'Played':'Upcoming',g.captain?pname(t,g.captain):'',t.players.length-ab.length,ab.join('; ')]);}
   return rows;
 }
 async function offerFile(filename,text,title){
@@ -1105,7 +1154,7 @@ document.addEventListener('click',e=>{
   case 'unarchive':t.archived=false;touch(t.id);break;
   case 'when':ui.when=v;break;
   case 'examples':loadExamples();return;
-  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.afterFinal=null;ui.armed=null;window.scrollTo(0,0);break;
+  case 'open-game':ui.teamId=b.dataset.team;ui.gameId=b.dataset.game;ui.view='game';ui.assistFor=null;ui.moreFor=null;ui.afterFinal=null;ui.capPick=false;ui.armed=null;window.scrollTo(0,0);break;
   case 'open-team':ui.teamId=b.dataset.team;ui.view='team';ui.tab='teams';ui.armed=null;ui.notice=null;ui.rosterNotice=null;ui.paste=null;ui.pasteRoster=false;ui.newSeason=false;ui.editPlayer=null;window.scrollTo(0,0);break;
   case 'back':ui.view=ui.tab==='teams'?'team':ui.tab;ui.assistFor=null;ui.afterFinal=null;break;
   case 'color':t.color=v;touch(t.id);break;
@@ -1141,6 +1190,15 @@ document.addEventListener('click',e=>{
     if(v==='pkgoal'){const x={id:rid(),p:pid,a:null,t:Date.now(),pk:true};if(ps)x.ps=ps;g.goals.push(x);ui.flashId='us';}
     else{const e={id:rid(),type:v,p:pid,t:Date.now()};if(ps)e.ps=ps;evs(g).push(e);if(v==='og')ui.flashId='them';}
     ui.moreFor=null;touch(t.id);render();ui.flashId=null;return;}
+  case 'cap-set':setCaptain(g,v||null);ui.capPick=false;touch(t.id);break;
+  case 'cap-pick':ui.capPick=true;break;
+  case 'cap-pick-close':ui.capPick=false;break;
+  case 'cap-move':{const nx=nextUpcoming(t,g);if(!nx||!g.captain)break;const was=g.captain,theirs=nx.captain;
+    setCaptain(nx,was);const back=theirs&&!(g.absent||[]).includes(theirs)?theirs:null;
+    setCaptain(g,back);if(!back){const s2=suggestCaptain(t,g,was);if(s2)setCaptain(g,s2.id);}
+    S.teams[t.id].meta=Date.now();touch(t.id);break;}
+  case 'cap-plan':planCaptains(t);ui.capNotice=t.id;touch(t.id);break;
+  case 'cap-clear':if(ui.armed==='cap-clear'){for(const x of capGames(t))if(!isPast(x)&&x.captain)setCaptain(x,null);ui.armed=null;ui.capNotice=null;touch(t.id);}else arm('cap-clear');break;
   case 'absent':{const ab=new Set(g.absent||[]);ab.has(v)?ab.delete(v):ab.add(v);g.absent=[...ab];touch(t.id);break;}
   case 'assist':{const x=g.goals.find(x=>x.id===ui.assistFor);if(x)x.a=v||null;ui.assistFor=null;touch(t.id);break;}
   case 'undo':g.goals=g.goals.filter(x=>x.id!==v);if(g.events)g.events=g.events.filter(x=>x.id!==v);if(ui.assistFor===v)ui.assistFor=null;touch(t.id);break;
