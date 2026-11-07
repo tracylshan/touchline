@@ -12,6 +12,7 @@ The touchline is the sideline of a soccer field, where parents and coaches stand
 - **Season stats.** Win-loss-draw records, and per player: games played, goals, assists, shots, shots on goal, penalties, saves, cards and own goals. Export everything as CSV.
 - **Seasons and career stats.** Start a new season from a team's page to carry the roster forward and archive the old season. The Career view adds up each player's stats across every season, and you can export it as CSV.
 - **Sync between devices (optional).** Keep one shared copy in your own Cloudflare storage so your phone, tablet and computer stay in step. Works offline and catches up later.
+- **Team pages for other parents (optional).** Share a read-only page for any team: results, scorers, schedule, season totals and the live score during games. Needs sync.
 - **Private.** Everything stays on your phone. No account, no ads, no sign-up.
 
 ## Install on your phone
@@ -64,6 +65,16 @@ The included Cloudflare worker (`relay/worker.js`) can also store one shared cop
 - The worker also keeps a snapshot of each day's data for 30 days (`snapshot-YYYY-MM-DD` in the KV namespace) in case you need to go back.
 - The free Cloudflare plan allows 1,000 saves a day; a busy game day uses a few dozen.
 - The passphrase is stored on each device. To stop syncing on a device, tap **Turn off sync on this device**.
+
+## Sharing a team page with other parents
+
+With sync on, open a team on the Teams tab and tap **Create share link** under **Share with other parents**. Send the link (`https://<your-worker>.workers.dev/t/…`) to other parents. They don't need the app or the passphrase.
+
+- **The page shows:** the team's record, results with scorers, assists, minutes and score by period, upcoming games, and season totals (games played, goals, assists, saves). During a game it shows the live score and refreshes every 30 seconds.
+- **It never shows:** calendar links, attendance, cards, or your other teams.
+- **Updates:** the page updates a few seconds after each change syncs. It's served by your worker from the synced data, so update the worker code (`relay/worker.js`) to get this feature.
+- **Control:** search engines are told not to list it. **New link** replaces the link (the old one stops working), and **Turn off** removes the page.
+- A new season starts without a share link. Create one for the new team when you're ready.
 
 ## If a calendar won't update
 

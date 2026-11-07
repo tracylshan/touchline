@@ -152,6 +152,7 @@ abbr{text-decoration:none}
 .clk-opts{flex-basis:100%;display:flex;gap:6px;justify-content:flex-end}
 .clk-opts button{border:1px solid color-mix(in srgb,var(--bg) 30%,transparent);background:none;color:var(--bg);border-radius:9px;padding:6px 10px;font-size:13px;font-weight:600}
 .clk-opts button.armed{background:var(--danger);border-color:var(--danger)}
+.sharebox input{font-size:13px;font-family:ui-monospace,Menlo,monospace}
 .per-line{font-variant-numeric:tabular-nums}
 .logrow .w{flex:1;min-width:0}
 .back{display:flex;align-items:center;gap:8px}
@@ -311,7 +312,7 @@ function importICS(teamId,feedId,text,quiet){
 
 /* ---------- automatic feed refresh ---------- */
 function httpsUrl(u){return String(u||'').trim().replace(/^webcal:\/\//i,'https://').replace(/^http:\/\//i,'https://');}
-const APP_VERSION='2026.11.07-2';
+const APP_VERSION='2026.11.07-3';
 const DEFAULT_RELAY='https://touchline-relay.tracylshan.workers.dev/?url=';
 const relayUrl=()=>(S.relay===undefined||S.relay===null?DEFAULT_RELAY:String(S.relay)).trim(); // blank = load feeds directly
 function fetchUrl(u){const r=relayUrl();if(!r)return u;return r.includes('{url}')?r.replace('{url}',encodeURIComponent(u)):r+encodeURIComponent(u);}
@@ -623,6 +624,7 @@ function viewTeam(){
   ${ui.pasteRoster?`<textarea id="rosterBox" placeholder="Name,Number&#10;Maya Chen,4&#10;Leo Ortiz,7"></textarea><div><button class="btn sm primary" data-act="roster-go">Import pasted roster</button></div>`:''}
   <p class="help">CSV with a Name (or First and Last) column and a Number or Jersey column. Spreadsheet exports and rows copied from a team app work. Matching names update their number.</p></div>
 
+  ${canRefresh?shareSection(t):''}
   <div class="section"><h2>Game format</h2>
   ${(()=>{const f=fmtOf(t);const is=(p,l)=>f.periods===p&&f.len===l;return `<div class="chips" style="flex-wrap:wrap"><button class="chip" data-act="fmt-preset" data-v="4x12" aria-pressed="${is(4,12)}">4 × 12 min quarters</button><button class="chip" data-act="fmt-preset" data-v="2x25" aria-pressed="${is(2,25)}">2 × 25 min halves</button><button class="chip" data-act="fmt-preset" data-v="2x30" aria-pressed="${is(2,30)}">2 × 30 min halves</button></div>
   <div class="row" style="align-items:end"><label class="field" style="flex:0 1 150px"><span class="label">Periods</span><select id="tPer" data-field="team-periods"><option value="4" ${f.periods===4?'selected':''}>4 quarters</option><option value="2" ${f.periods===2?'selected':''}>2 halves</option></select></label>
@@ -650,6 +652,19 @@ function viewTeam(){
   ${ui.newSeason?newSeasonForm(t):`<p class="help">Copies this team's players and settings into a new team for the next season and archives this one. All stats stay, and career totals combine both.</p>
   <div class="row"><button class="btn primary" data-act="new-season">Start new season</button><button class="btn" data-act="archive">Archive without a new season</button></div>`}</div>`}
   <div class="section"><button class="btn ${ui.armed==='team'?'armed':'danger'}" data-act="del-team">${ui.armed==='team'?'Tap again to delete this team and its games':'Delete team'}</button></div>`;
+}
+function shareLink(t){try{return new URL(S.sync.url).origin+'/t/'+t.share.id;}catch(e){return '';}}
+function newShareId(){const a=new Uint8Array(12);crypto.getRandomValues(a);return Array.from(a,b=>(b%36).toString(36)).join('')+Date.now().toString(36).slice(-4);}
+function shareSection(t){
+  let html=`<div class="section"><h2>Share with other parents</h2>`;
+  if(!syncOn())return html+`<p class="help">Make a read-only web page for this team that other parents can open from a link, with no app or passphrase. It shows results, scorers, the schedule and season totals, and updates as you sync. Sharing needs sync between devices to be on first.</p><div class="row"><button class="btn" data-act="goto-sync">Set up sync</button></div></div>`;
+  if(!(t.share&&t.share.on))return html+`<p class="help">Make a read-only web page for this team that other parents can open from a link, with no app or passphrase. It shows results, scorers with minutes, the schedule and season totals (games, goals, assists, saves), and shows the live score during games. It doesn't show attendance, cards or calendar links.</p><div class="row"><button class="btn primary" data-act="share-on">Create share link</button></div></div>`;
+  const link=shareLink(t);
+  return html+`<p class="help">Anyone with this link can see this team's page. Search engines are told not to list it. ${S.sync.err?'<b>Sync has a problem, so the page may be out of date.</b>':'It updates a few seconds after each change syncs.'}</p>
+  <div class="sharebox"><input type="text" id="shareLink" readonly value="${esc(link)}" aria-label="Share link"></div>
+  <div class="row"><button class="btn primary" data-act="share-copy">${navigator.share&&!window.claude?'Share link':'Copy link'}</button><a class="btn" href="${esc(link)}" target="_blank" rel="noopener">Open page ↗</a>
+  <button class="btn ghost ${ui.armed==='share-new'?'armed':''}" data-act="share-new">${ui.armed==='share-new'?'Tap again: old link stops working':'New link'}</button>
+  <button class="btn ghost ${ui.armed==='share-off'?'armed':'danger'}" data-act="share-off">${ui.armed==='share-off'?'Tap again to turn off':'Turn off'}</button></div></div>`;
 }
 function newSeasonForm(t){
   return `<form class="assist" data-form="new-season" style="gap:12px">
@@ -1103,6 +1118,12 @@ document.addEventListener('click',e=>{
   case 'import-sample':importICS(t.id,v,sampleICS(t));return;
   case 'import-file':pendingImport={team:t.id,feed:v};fileIcs.click();return;
   case 'refresh':refreshFeeds();return;
+  case 'share-on':t.share={on:true,id:newShareId(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone};touch(t.id);syncNow(true);break;
+  case 'share-new':if(ui.armed==='share-new'){t.share={...t.share,id:newShareId()};ui.armed=null;touch(t.id);syncNow(true);}else arm('share-new');break;
+  case 'share-off':if(ui.armed==='share-off'){t.share={...t.share,on:false};ui.armed=null;touch(t.id);syncNow(true);}else arm('share-off');break;
+  case 'share-copy':{const link=shareLink(t),el=document.getElementById('shareLink');
+    if(navigator.share&&!window.claude){navigator.share({title:t.name+' · team page',url:link}).catch(()=>{});return;}
+    try{navigator.clipboard.writeText(link).then(()=>{b.textContent='Copied';},()=>{el.select();});}catch(e){el.select();}return;}
   case 'sync-now':syncNow(true);render();return;
   case 'sync-off':if(ui.armed==='sync-off'){S.sync.on=false;S.sync.key='';S.sync.err=null;ui.armed=null;saveLocal();}else arm('sync-off');break;
   case 'goto-sync':ui.tab='teams';ui.view='teams';render();{const el=document.getElementById('syncSection');if(el)el.scrollIntoView({behavior:'smooth'});}return;
@@ -1160,7 +1181,7 @@ document.addEventListener('submit',e=>{
   switch(f.dataset.form){
   case 'new-season':{
     const keep=new Set(new FormData(f).getAll('keep'));const id='t_'+rid();
-    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,format:t.format,lineage:lineageOf(t),prev:t.id,
+    const nt={id,name:d.name.trim()||seasonName(t.name),color:t.color,format:t.format,share:undefined,lineage:lineageOf(t),prev:t.id,
       players:t.players.filter(p=>keep.has(p.id)).map(p=>({id:'p_'+rid(),key:pkey(p),num:p.num,name:p.name})),
       feeds:[],games:{},skip:t.skip,only:t.only,created:Date.now()};
     if((d.feedLabel||'').trim()||(d.feedUrl||'').trim())nt.feeds.push({id:'f_'+rid(),label:(d.feedLabel||'').trim()||'Season calendar',url:(d.feedUrl||'').trim(),last:null});
